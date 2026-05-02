@@ -51,15 +51,19 @@ _start_time: datetime = datetime.now()
 def main_menu_kb() -> InlineKeyboardMarkup:
     s = load_settings()
     notif_icon = "🔔" if s["notifications_on"] else "🔕"
+    require_floor = bool(s.get("require_floor", True))
+    rf_icon = "🟢" if require_floor else "⚪"
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Макс. цена (TON)",            callback_data="set_max_ton")],
-        [InlineKeyboardButton(text="📉 Мин. скидка от Floor (%)",    callback_data="set_discount")],
-        [InlineKeyboardButton(text="✨ Фильтр по редкости",          callback_data="menu_rarity")],
-        [InlineKeyboardButton(text="🏪 Активные маркеты",            callback_data="menu_markets")],
-        [InlineKeyboardButton(text=f"{notif_icon} Уведомления",      callback_data="toggle_notif")],
-        [InlineKeyboardButton(text="📊 Текущие настройки",           callback_data="show_settings")],
-        [InlineKeyboardButton(text="📈 Статус бота",                 callback_data="show_status")],
-        [InlineKeyboardButton(text="🎁 Тест — случайный подарок",    callback_data="test_random_gift")],
+        [InlineKeyboardButton(text="💎 Макс. цена (TON)",                callback_data="set_max_ton")],
+        [InlineKeyboardButton(text="📐 Допуск над Floor (%)",            callback_data="set_floor_tol")],
+        [InlineKeyboardButton(text="📉 Мин. скидка от Floor (%)",        callback_data="set_discount")],
+        [InlineKeyboardButton(text=f"{rf_icon} Только с известным Floor", callback_data="toggle_require_floor")],
+        [InlineKeyboardButton(text="✨ Фильтр по редкости",              callback_data="menu_rarity")],
+        [InlineKeyboardButton(text="🏪 Активные маркеты",                callback_data="menu_markets")],
+        [InlineKeyboardButton(text=f"{notif_icon} Уведомления",          callback_data="toggle_notif")],
+        [InlineKeyboardButton(text="📊 Текущие настройки",               callback_data="show_settings")],
+        [InlineKeyboardButton(text="📈 Статус бота",                     callback_data="show_status")],
+        [InlineKeyboardButton(text="🎁 Тест — случайный подарок",        callback_data="test_random_gift")],
     ])
 
 
@@ -171,13 +175,20 @@ async def show_settings(callback: CallbackQuery):
     notif_text   = "Включены ✅" if s["notifications_on"] else "Выключены 🔕"
     discount_text = f"{s['min_discount_pct']}%" if s['min_discount_pct'] > 0 else "Без фильтра"
 
+    floor_tol = float(s.get("floor_tolerance_pct", 0.0))
+    floor_tol_text = f"+{floor_tol:g}%" if floor_tol > 0 else "только пол (0%)"
+    require_floor = bool(s.get("require_floor", True))
+    rf_text = "Да ✅" if require_floor else "Нет (риск ложных алертов) ⚠️"
+
     stars_equiv = _fmt_int(rate_provider.ton_to_stars(s["max_price_ton"]))
 
     text = (
         f"📊 <b>Текущие настройки:</b>\n\n"
         f"💎 Макс. цена: <b>{s['max_price_ton']} TON</b>\n"
         f"   <i>≈ {stars_equiv} ⭐ на Fragment по текущему курсу</i>\n\n"
+        f"📐 Допуск над Floor: <b>{floor_tol_text}</b>\n"
         f"📉 Мин. скидка от Floor: <b>{discount_text}</b>\n"
+        f"🟢 Требовать known Floor: <b>{rf_text}</b>\n\n"
         f"✨ Редкости: <b>{rarity_text}</b>\n"
         f"🏪 Маркеты: <b>{markets_text}</b>\n"
         f"🔔 Уведомления: <b>{notif_text}</b>"
@@ -287,6 +298,34 @@ async def set_discount_prompt(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "set_floor_tol")
+async def set_floor_tol_prompt(callback: CallbackQuery):
+    s = load_settings()
+    _pending_input[callback.from_user.id] = "floor_tol"
+    cur = float(s.get("floor_tolerance_pct", 0.0))
+    await callback.message.edit_text(
+        f"📐 <b>Допуск над Floor (%)</b>\n\n"
+        f"Сколько процентов сверху от Floor-цены ещё считать «выгодным».\n"
+        f"<b>0%</b> = алертить ТОЛЬКО лоты по Floor.\n"
+        f"<b>5%</b> = плюс лоты до 5% выше Floor.\n\n"
+        f"Текущее: <b>{cur:g}%</b>\n\n"
+        f"Отправь число от 0 до 50:",
+        reply_markup=back_kb()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "toggle_require_floor")
+async def toggle_require_floor(callback: CallbackQuery):
+    s = load_settings()
+    cur = bool(s.get("require_floor", True))
+    s["require_floor"] = not cur
+    save_settings(s)
+    status = "только с известным Floor ✅" if s["require_floor"] else "разрешены лоты без Floor ⚠️"
+    await callback.answer(f"Теперь: {status}", show_alert=True)
+    await callback.message.edit_reply_markup(reply_markup=main_menu_kb())
+
+
 @dp.message(F.text.regexp(r"^\d+([\.,]\d+)?$"))
 async def handle_number_input(message: types.Message):
     if not _only_owner(message.from_user.id):
@@ -328,6 +367,18 @@ async def handle_number_input(message: types.Message):
         label = f"{s['min_discount_pct']}%" if s["min_discount_pct"] > 0 else "без фильтра"
         await message.answer(
             f"✅ Мин. скидка: <b>{label}</b>",
+            reply_markup=main_menu_kb()
+        )
+
+    elif pending == "floor_tol":
+        if value_f < 0 or value_f > 50:
+            await message.answer("⚠️ Введи значение от 0 до 50.", reply_markup=main_menu_kb())
+            return
+        s["floor_tolerance_pct"] = round(value_f, 2)
+        save_settings(s)
+        label = f"+{s['floor_tolerance_pct']:g}%" if s["floor_tolerance_pct"] > 0 else "только пол (0%)"
+        await message.answer(
+            f"✅ Допуск над Floor: <b>{label}</b>",
             reply_markup=main_menu_kb()
         )
 

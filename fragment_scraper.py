@@ -18,7 +18,13 @@ import random
 import aiohttp
 
 from database import is_gift_seen, add_gift
-from logic import parse_fragment_html, is_profitable, format_price, format_stars
+from logic import (
+    parse_fragment_html,
+    is_profitable,
+    format_price,
+    format_stars,
+    apply_floors,
+)
 from config import FRAGMENT_POLL_INTERVAL
 from rate_provider import rate_provider
 
@@ -34,7 +40,7 @@ HEADERS = {
     ),
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Encoding": "gzip, deflate",
     "Cache-Control": "no-cache",
     "Pragma": "no-cache",
 }
@@ -179,8 +185,15 @@ async def start_fragment_monitor():
                         )
                 else:
                     consecutive_fails = 0
+                    # Считаем floor по name из текущего batch
+                    apply_floors(gifts, key="name")
+                    floors_summary = sorted({
+                        (g["name"], g.get("floor_price"))
+                        for g in gifts if g.get("floor_price")
+                    })[:5]
                     logger.info(
-                        f"Fragment: получено {len(gifts)} уникальных лотов"
+                        f"Fragment: получено {len(gifts)} лотов, "
+                        f"посчитан floor для {len(floors_summary)}+ коллекций"
                     )
 
                 # Обработка найденных лотов

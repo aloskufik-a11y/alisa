@@ -17,7 +17,13 @@ import aiohttp
 from telethon.tl import functions
 
 from database import is_gift_seen, add_gift
-from logic import parse_mrkt_json, is_profitable, format_price
+from logic import (
+    parse_mrkt_json,
+    parse_portals_search,
+    is_profitable,
+    format_price,
+    apply_floors,
+)
 from notifier import bot
 from config import MRKT_POLL_INTERVAL
 
@@ -273,7 +279,14 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                             break
 
                 if all_listings:
-                    logger.info(f"MRKT: итого {len(all_listings)} лотов")
+                    # Считаем floor по collection name из текущего batch.
+                    # Если API сам отдал floor — он уже в gift["floor_price"].
+                    apply_floors(all_listings, key="name")
+                    logger.info(
+                        f"MRKT: итого {len(all_listings)} лотов "
+                        f"(floor посчитан для коллекций: "
+                        f"{len({g['name'] for g in all_listings if g.get('floor_price')})})"
+                    )
                     await process_listings("mrkt", all_listings)
 
             except asyncio.TimeoutError:
@@ -345,12 +358,147 @@ async def process_listings(market: str, listings: list):
         logger.info(f"{market.upper()}: {new_count} новых лотов, {alerted_count} алертов отправлено")
 
 
+# ─── Portals Market (portal-market.com) ──────────────────────────────────────
+
+PORTALS_BOT_NAME = "portals"
+PORTALS_WEB_URL = "https://portals-market.com"
+PORTALS_API_BASE = "https://portal-market.com/api"
+PORTALS_PAGE_SIZE = 30
+PORTALS_MAX_PAGES = 3
+
+
+async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
+    """
+    Мониторинг Portals Market (portal-market.com). Цены в TON.
+    API сам отдаёт floor_price для каждого item — апплаим его как есть.
+    """
+    logger.info("Portals: получаем tgWebAppData...")
+    init_data = await get_tg_web_data(PORTALS_BOT_NAME, PORTALS_WEB_URL)
+    if not init_data:
+        logger.error("Portals: не удалось получить tgWebAppData")
+        return
+
+    connector = aiohttp.TCPConnector(limit=5, ttl_dns_cache=300, keepalive_timeout=30)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        _debug_logged = False
+        backoff = 10.0
+        consecutive_errors = 0
+
+        while True:
+            try:
+                # Чередуем сортировки чтобы покрыть и floor, и свежие
+                all_listings: list = []
+                for sort_by in ("price asc", "listed_at desc"):
+                    page_listings = []
+                    for page in range(PORTALS_MAX_PAGES):
+                        offset = page * PORTALS_PAGE_SIZE
+                        params = {
+                            "limit": PORTALS_PAGE_SIZE,
+                            "offset": offset,
+                            "sort_by": sort_by,
+                            "status": "listed",
+                        }
+                        headers = {
+                            "User-Agent": MRKT_UA,
+                            "Accept": "application/json",
+                            "Origin": "https://portals-market.com",
+                            "Referer": "https://portals-market.com/",
+                            "Authorization": f"tma {init_data}",
+                        }
+                        url = f"{PORTALS_API_BASE}/nfts/search"
+                        async with session.get(
+                            url, params=params, headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=20),
+                        ) as response:
+                            if response.status == 200:
+                                data = await response.json(content_type=None)
+                                if not _debug_logged:
+                                    _debug_logged = True
+                                    items = data.get("results", [])
+                                    if items:
+                                        logger.info(
+                                            f"Portals DEBUG (первый item): "
+                                            f"{items[0].get('name')} #{items[0].get('external_collection_number')} "
+                                            f"@ {items[0].get('price')} TON, "
+                                            f"floor={items[0].get('floor_price')}"
+                                        )
+                                listings = parse_portals_search(data)
+                                page_listings.extend(listings)
+                                if len(listings) < PORTALS_PAGE_SIZE:
+                                    break  # последняя страница
+                                await asyncio.sleep(random.uniform(1.5, 3.0))
+                            elif response.status == 401:
+                                logger.warning("Portals: 401 — обновляем tgWebAppData")
+                                new_init = await get_tg_web_data(PORTALS_BOT_NAME, PORTALS_WEB_URL)
+                                if new_init:
+                                    init_data = new_init
+                                break
+                            elif response.status == 429:
+                                jitter = random.uniform(0, backoff * 0.3)
+                                wait = backoff + jitter
+                                logger.warning(f"Portals: 429, ждём {wait:.0f}с")
+                                await asyncio.sleep(wait)
+                                backoff = min(backoff * 2, 600)
+                                break
+                            elif response.status in (502, 503):
+                                wait = backoff + random.uniform(0, 5)
+                                logger.warning(f"Portals: {response.status}, ждём {wait:.0f}с")
+                                await asyncio.sleep(wait)
+                                backoff = min(backoff * 2, 300)
+                                break
+                            else:
+                                text = await response.text()
+                                logger.warning(f"Portals API {response.status}: {text[:200]}")
+                                consecutive_errors += 1
+                                break
+
+                    all_listings.extend(page_listings)
+                    await asyncio.sleep(random.uniform(2.0, 4.0))
+
+                # Дедупликация по id
+                if all_listings:
+                    seen_ids: set = set()
+                    unique = []
+                    for it in all_listings:
+                        if it["id"] not in seen_ids:
+                            seen_ids.add(it["id"])
+                            unique.append(it)
+                    # apply_floors — на случай, если API не отдал floor
+                    apply_floors(unique, key="name")
+                    logger.info(
+                        f"Portals: итого {len(unique)} лотов "
+                        f"(floor известен: {sum(1 for g in unique if g.get('floor_price'))})"
+                    )
+                    backoff = 10.0
+                    await process_listings("portals", unique)
+
+            except asyncio.TimeoutError:
+                logger.warning("Portals: таймаут запроса")
+                consecutive_errors += 1
+                await asyncio.sleep(min(backoff, 60))
+            except aiohttp.ClientError as e:
+                logger.error(f"Portals сеть: {e}")
+                consecutive_errors += 1
+                await asyncio.sleep(min(backoff, 60))
+            except Exception as e:
+                logger.error(f"Portals неожиданная ошибка: {e}", exc_info=True)
+                consecutive_errors += 1
+
+            if consecutive_errors >= 5:
+                logger.warning("Portals: 5 ошибок подряд, перезапуск сессии")
+                return
+
+            await asyncio.sleep(interval)
+
+
 # ─── Запуск ───────────────────────────────────────────────────────────────────
 
 async def start_mini_app_scrapers():
     """Запускает все Mini App парсеры как фоновые задачи."""
     logger.info("Запуск MRKT парсера...")
     asyncio.create_task(_mrkt_with_retry(), name="mrkt_scraper")
+    logger.info("Запуск Portals парсера...")
+    asyncio.create_task(_portals_with_retry(), name="portals_scraper")
 
 
 async def _mrkt_with_retry():
@@ -367,4 +515,20 @@ async def _mrkt_with_retry():
         # Нарастающая пауза (60, 120, 180, 240, 300, 300, 300...)
         wait = min(60 * attempt, 300)
         logger.info(f"MRKT: перезапуск через {wait}с...")
+        await asyncio.sleep(wait)
+
+
+async def _portals_with_retry():
+    """Portals с авто-перезапуском."""
+    attempt = 0
+    while True:
+        attempt += 1
+        logger.info(f"Portals: старт сессии #{attempt}")
+        try:
+            await poll_portals(interval=MRKT_POLL_INTERVAL)
+        except Exception as e:
+            logger.error(f"Portals парсер упал: {e}", exc_info=True)
+
+        wait = min(60 * attempt, 300)
+        logger.info(f"Portals: перезапуск через {wait}с...")
         await asyncio.sleep(wait)

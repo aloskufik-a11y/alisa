@@ -97,21 +97,43 @@ def re_has_number_suffix(slug: str) -> bool:
 
 # ─── MRKT (TON, нативно) ──────────────────────────────────────────────────────
 
+_NANO = 1_000_000_000  # 1 TON = 1e9 nanoTON
+
+
+def _nano_to_ton(value) -> Optional[float]:
+    """Конвертирует nanoTON → TON. None или 0 → None."""
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v <= 0:
+        return None
+    return round(v / _NANO, 6)
+
+
 def parse_mrkt_json(json_data: dict) -> list:
     """
     Парсит ответ MRKT API /api/v1/gifts/saling.
-    Цены нативно в TON.
 
-    Реальная структура item из MRKT API:
+    Реальная структура item (по факту):
       {
-        "id": "abc123",
-        "slug": "eternal-rose-42",   ← используется в startapp
-        "name": "Eternal Rose",
-        "number": 42,                ← номер экземпляра в коллекции
-        "price": 5.5,                ← цена в TON
-        "floor_price": 7.0,          ← минимальная цена коллекции в TON
-        "rarity": "Rare",
-        "image_url": "https://...",
+        "id": "uuid",
+        "name": "ViceCream-258228",          ← внутренний slug, НЕ показывать
+        "title": "Vice Cream",                ← коллекция (cosmetic)
+        "collectionName": "Vice Cream",       ← коллекция (canonical)
+        "collectionTitle": "Vice Cream",      ← pretty
+        "modelName": "Pine Cone",             ← вариант модели
+        "number": 258228,
+        "salePrice": 2630000000,              ← цена в nanoTON (÷ 1e9 = TON)
+        "salePriceWithoutFee": 2630000000,
+        "floorPriceNanoTONsByCollection": null,
+        "floorPriceNanoTONsByBackdropModel": null,
+        "isOnSale": true,
+        "modelStickerKey": "...",
+        "modelStickerThumbnailKey": "...",
+        ...
       }
     """
     results = []
@@ -120,7 +142,7 @@ def parse_mrkt_json(json_data: dict) -> list:
         if isinstance(json_data, list):
             items = json_data
         elif isinstance(json_data, dict):
-            for key in ("items", "data", "gifts", "results", "list"):
+            for key in ("gifts", "items", "data", "results", "list"):
                 candidate = json_data.get(key)
                 if isinstance(candidate, list) and candidate:
                     items = candidate
@@ -134,53 +156,95 @@ def parse_mrkt_json(json_data: dict) -> list:
             if not isinstance(item, dict):
                 continue
 
+            # Только реально продающиеся
+            if item.get("isOnSale") is False:
+                continue
+
             gift_id = _extract_str(item, "id", "gift_id", "_id", "uuid")
             if not gift_id:
                 continue
 
-            gift_name = _extract_str(item, "name", "title", "gift_name", default="Unknown")
+            # Имя коллекции — для группировки и отображения
+            gift_name = _extract_str(
+                item,
+                "collectionTitle", "collectionName", "title",
+                "gift_name", default="",
+            )
+            # Запасной вариант: name это slug вида "ViceCream-258228"
+            if not gift_name:
+                raw_name = _extract_str(item, "name", default="")
+                if raw_name:
+                    gift_name = re.sub(r"[-_]\d+$", "", raw_name)
+                    # CamelCase → "Camel Case"
+                    gift_name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", gift_name).strip()
+                else:
+                    gift_name = "Unknown"
 
+            model_name = _extract_str(item, "modelName", "modelTitle", default="")
+
+            # Slug / alias — для url_builder
             api_slug = _extract_str(item, "slug", "alias")
             if not api_slug:
-                api_slug = gift_name.lower().replace(" ", "-").replace("_", "-")
+                # Реконструируем из name+number
+                base = (gift_name or "").lower().replace(" ", "-").replace("_", "-")
+                num = _extract_str(item, "number", default="")
+                api_slug = f"{base}-{num}" if base and num else (base or gift_id)
 
             number = _extract_str(item, "number", "num", "edition", "index")
 
-            # Цена в TON
-            price = _extract_price(item, "price", "price_ton", "priceTon", "amount")
+            # Цена salePrice в nanoTON → TON
+            sale_price_nano = item.get("salePrice")
+            if sale_price_nano is None:
+                sale_price_nano = item.get("salePriceWithoutFee")
+            price = _nano_to_ton(sale_price_nano)
+
+            if price is None:
+                # Запасной путь: вдруг отдают цену в TON напрямую
+                price = _extract_price(item, "price", "price_ton", "priceTon", "amount")
+
             if price is None:
                 logger.debug(f"MRKT: пропускаем {gift_id} — нет цены")
                 continue
 
-            # Floor в TON
-            floor_raw = None
-            for fk in ("floor_price", "floorPrice", "floor", "min_price", "minPrice"):
-                v = item.get(fk)
-                if v is not None:
-                    floor_raw = v
-                    break
-            floor = round(_safe_float(floor_raw), 6) if floor_raw is not None else None
-            if floor is not None and floor <= 0:
-                floor = None
+            # Floor в nanoTON → TON. Берём наименьший доступный (по backdrop+model — точнее)
+            floor_bm = _nano_to_ton(item.get("floorPriceNanoTONsByBackdropModel"))
+            floor_col = _nano_to_ton(item.get("floorPriceNanoTONsByCollection"))
+            floor = floor_bm or floor_col
 
-            rarity_raw = _extract_str(item, "rarity", "rarityLevel", "rarity_name", "tier")
+            # Запасной вариант — старые ключи
+            if floor is None:
+                for fk in ("floor_price", "floorPrice", "floor", "min_price", "minPrice"):
+                    v = item.get(fk)
+                    if v is not None:
+                        floor = round(_safe_float(v), 6)
+                        if floor and floor > 0:
+                            break
+                        floor = None
+
+            rarity_raw = _extract_str(
+                item,
+                "rarity", "rarityLevel", "rarity_name", "tier",
+                "modelRarityName", "backdropRarityName",
+            )
             rarity = rarity_raw.capitalize() if rarity_raw else ""
 
             image_url = _extract_image(item)
-            total_count = item.get("total_count") or item.get("totalCount") or 0
+            total_count = item.get("total_count") or item.get("totalCount") \
+                or item.get("totalUpgradedCount") or item.get("maxUpgradedCount") or 0
 
-            # Сохраняем оригинальные Stars если есть (для справки)
+            # Stars (если когда-нибудь будет в API)
             stars_price_raw = item.get("stars_price") or item.get("starsPrice")
             stars_price = _safe_float(stars_price_raw) if stars_price_raw else None
 
             results.append({
                 "id": gift_id,
                 "name": gift_name,
+                "model_name": model_name,
                 "slug": api_slug,
                 "number": number,
                 "price": round(price, 6),         # TON
-                "price_ton": round(price, 6),      # TON (алиас для ясности)
-                "stars_price": stars_price,         # Stars (если есть в API)
+                "price_ton": round(price, 6),
+                "stars_price": stars_price,
                 "floor_price": floor,              # TON
                 "rarity": rarity,
                 "currency": "TON",
@@ -446,7 +510,126 @@ def _slug_to_name(slug: str) -> str:
     return " ".join(p.capitalize() for p in parts) if parts else slug
 
 
-# ─── GetGems / Portals (наноТОН → TON) ──────────────────────────────────────
+# ─── Portals Market (portal-market.com) ─────────────────────────────────────
+
+def _portals_attr(attrs: list, attr_type: str) -> str:
+    """Извлекает значение атрибута Portals по типу (model/backdrop/symbol)."""
+    if not isinstance(attrs, list):
+        return ""
+    for a in attrs:
+        if isinstance(a, dict) and a.get("type") == attr_type:
+            return str(a.get("value") or "")
+    return ""
+
+
+def parse_portals_search(json_data: dict) -> list:
+    """
+    Парсит ответ Portals search API: GET /api/nfts/search
+
+    Реальная структура item (по факту):
+      {
+        "id": "uuid",
+        "tg_id": "IceCream-53559",
+        "collection_id": "uuid",
+        "external_collection_number": 53559,
+        "name": "Ice Cream",                    ← коллекция
+        "photo_url": "...",
+        "price": "6.29",                          ← string, TON
+        "floor_price": "2.94",                    ← string, TON (отдаётся API!)
+        "listed_at": "2026-05-02T15:20:46Z",
+        "status": "listed",
+        "attributes": [
+          {"type": "model", "value": "...", "rarity_per_mille": 3},
+          {"type": "backdrop", "value": "...", "rarity_per_mille": 1},
+          {"type": "symbol", "value": "...", "rarity_per_mille": 0.4}
+        ]
+      }
+    """
+    results: list = []
+    try:
+        items = json_data.get("results", []) if isinstance(json_data, dict) else []
+        if not isinstance(items, list):
+            return results
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+
+            # Только реально продающиеся
+            status = (item.get("status") or "").lower()
+            if status and status != "listed":
+                continue
+
+            gift_id = _extract_str(item, "id", "uuid")
+            if not gift_id:
+                continue
+
+            gift_name = _extract_str(item, "name", default="Unknown")
+            number = _extract_str(item, "external_collection_number", "number", "index")
+
+            # Цена и floor — строки в TON
+            price = _safe_float(item.get("price"))
+            if price <= 0:
+                continue
+
+            floor_raw = item.get("floor_price")
+            floor = _safe_float(floor_raw) if floor_raw is not None else 0.0
+            floor_ton = round(floor, 6) if floor > 0 else None
+
+            attrs = item.get("attributes", [])
+            model = _portals_attr(attrs, "model")
+            backdrop = _portals_attr(attrs, "backdrop")
+            symbol = _portals_attr(attrs, "symbol")
+
+            # Редкость: используем минимальный rarity_per_mille как индикатор
+            rarities = [
+                a.get("rarity_per_mille", 1000)
+                for a in attrs if isinstance(a, dict) and a.get("rarity_per_mille") is not None
+            ]
+            min_rarity_per_mille = min(rarities) if rarities else None
+            if min_rarity_per_mille is not None and min_rarity_per_mille < 1:
+                rarity = "Legendary"
+            elif min_rarity_per_mille is not None and min_rarity_per_mille < 5:
+                rarity = "Epic"
+            elif min_rarity_per_mille is not None and min_rarity_per_mille < 30:
+                rarity = "Rare"
+            elif min_rarity_per_mille is not None and min_rarity_per_mille < 100:
+                rarity = "Uncommon"
+            elif min_rarity_per_mille is not None:
+                rarity = "Common"
+            else:
+                rarity = ""
+
+            # Slug для url_builder
+            tg_id = _extract_str(item, "tg_id", default="")
+            slug = tg_id.lower().replace(" ", "") if tg_id else \
+                f"{gift_name.lower().replace(' ', '')}-{number}" if gift_name and number else gift_id
+
+            results.append({
+                "id": gift_id,
+                "name": gift_name,
+                "model_name": model,
+                "backdrop_name": backdrop,
+                "symbol_name": symbol,
+                "slug": slug,
+                "number": number,
+                "price": round(price, 6),
+                "price_ton": round(price, 6),
+                "stars_price": None,
+                "floor_price": floor_ton,
+                "rarity": rarity,
+                "currency": "TON",
+                "image_url": _extract_str(item, "photo_url", "image_url"),
+                "url": f"https://t.me/portals/market?startapp=gift_{gift_id}",
+                "market": "portals",
+            })
+
+    except Exception as e:
+        logger.error(f"Ошибка при парсинге Portals search: {e}", exc_info=True)
+    return results
+
+
+# ─── GetGems / Portals (наноТОН → TON) — устаревший GraphQL ─────────────────
 
 def parse_portals_graphql(json_data: dict) -> list:
     """
@@ -530,22 +713,65 @@ def normalize_market(market: str) -> str:
 # ─── Фильтр выгодности (всё в TON) ──────────────────────────────────────────
 
 DEFAULT_S: dict = {
-    "max_price_ton": 50.0,      # Макс. цена в TON (для ВСЕХ маркетов)
-    "min_discount_pct": 0,      # Мин. скидка от Floor (%)
-    "filter_rarity": [],        # Белый список редкостей
-    "filter_markets": ["mrkt", "fragment"],  # Активные маркеты
+    "max_price_ton": 50.0,        # Макс. цена в TON (абсолютный потолок)
+    "floor_tolerance_pct": 0.0,    # Сколько % сверху от floor допускать (0 = только floor)
+    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%)
+    "require_floor": True,         # Если True — без known floor лот не выгоден
+    "filter_rarity": [],           # Белый список редкостей
+    "filter_markets": ["mrkt", "fragment", "portals"],
     "notifications_on": True,
 }
 
 
+def compute_floors(gifts: list[dict], key: str = "name") -> dict[str, float]:
+    """
+    Считает floor (минимальную цену в TON) по группам ключа `key`.
+    Каждый gift должен содержать ключи `name` (или то, что указано в `key`)
+    и `price` (TON). Возвращает {name: floor_ton}.
+    """
+    floors: dict[str, float] = {}
+    for g in gifts:
+        if not isinstance(g, dict):
+            continue
+        name = g.get(key)
+        price = g.get("price")
+        if not name or not isinstance(price, (int, float)) or price <= 0:
+            continue
+        cur = floors.get(name)
+        if cur is None or price < cur:
+            floors[name] = float(price)
+    return floors
+
+
+def apply_floors(gifts: list[dict], key: str = "name") -> list[dict]:
+    """
+    Считает floor по batch и записывает в каждый gift как `floor_price`,
+    если у gift нет своего floor (None или 0). Возвращает тот же список
+    (мутирует элементы in-place).
+    """
+    floors = compute_floors(gifts, key=key)
+    for g in gifts:
+        if not isinstance(g, dict):
+            continue
+        existing = g.get("floor_price")
+        if existing is None or (isinstance(existing, (int, float)) and existing <= 0):
+            name = g.get(key)
+            if name and name in floors:
+                g["floor_price"] = floors[name]
+    return gifts
+
+
 def is_profitable(gift_data: dict, market: str = "") -> bool:
     """
-    Проверяет выгодность лота.
-    ВСЕ ЦЕНЫ В TON.
-      1. Маркет в белом списке?
-      2. Цена в TON ниже лимита?
-      3. Скидка от Floor достаточная?
-      4. Редкость подходит?
+    Проверяет, выгодный ли лот. Все цены в TON.
+
+    Цепочка проверок:
+      1. Маркет в белом списке.
+      2. Цена валидна и ниже max_price_ton.
+      3. Floor-aware: цена ≤ floor × (1 + floor_tolerance_pct / 100).
+         Если require_floor=True и floor неизвестен — НЕ выгодно.
+      4. min_discount_pct (опционально, доп. ограничение).
+      5. Редкость в белом списке (если задан).
     """
     try:
         from settings_store import load_settings
@@ -565,26 +791,40 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     if price is None or not isinstance(price, (int, float)) or price <= 0:
         return False
 
-    # 3. Цена ниже лимита? (всё в TON)
-    max_price_ton = float(s.get("max_price_ton", 50.0))
-    if price > max_price_ton:
+    # 3. Цена ниже абсолютного потолка
+    max_price_ton = float(s.get("max_price_ton", DEFAULT_S["max_price_ton"]))
+    if max_price_ton > 0 and price > max_price_ton:
         return False
 
-    # 4. Скидка от Floor?
+    # 4. Floor-aware: лот должен быть на полу или у пола
     floor = gift_data.get("floor_price")
+    floor_valid = isinstance(floor, (int, float)) and floor > 0
+    require_floor = bool(s.get("require_floor", DEFAULT_S["require_floor"]))
+    floor_tolerance_pct = float(s.get("floor_tolerance_pct", DEFAULT_S["floor_tolerance_pct"]))
+
+    if floor_valid:
+        max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
+        # +0.000001 запас на ошибки округления
+        if price > max_allowed + 1e-6:
+            return False
+    elif require_floor:
+        # Без known floor мы не можем гарантировать выгодность
+        return False
+
+    # 5. Минимальная скидка от floor (если требуется)
     min_discount = int(s.get("min_discount_pct", 0))
-    if min_discount > 0 and isinstance(floor, (int, float)) and floor > price:
-        discount_pct = (floor - price) / floor * 100
+    if min_discount > 0:
+        if not floor_valid:
+            return False
+        discount_pct = (float(floor) - price) / float(floor) * 100.0
         if discount_pct < min_discount:
             return False
 
-    # 5. Редкость?
+    # 6. Редкость
     rarity_filter = s.get("filter_rarity", [])
     if rarity_filter:
         rarity = gift_data.get("rarity", "")
-        if not rarity:
-            return False
-        if rarity not in rarity_filter:
+        if not rarity or rarity not in rarity_filter:
             return False
 
     return True

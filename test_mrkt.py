@@ -74,50 +74,66 @@ print("\n[2] logic.py — parse_mrkt_json")
 try:
     from logic import parse_mrkt_json
 
+    # Реальная структура MRKT API (2025-2026): salePrice в nanoTON, имя в collectionName
     mrkt_resp = {
-        "items": [
+        "gifts": [
             {
                 "id": "abc123",
-                "name": "Eternal Rose",
-                "slug": "eternal-rose-42",
-                "num": 42,
-                "price": 5.5,
-                "floorPrice": 8.0,
-                "rarity": "rare",
-                "imageUrl": "https://example.com/img.png",
+                "name": "ViceCream-258228",
+                "title": "Vice Cream",
+                "collectionName": "Vice Cream",
+                "collectionTitle": "Vice Cream",
+                "modelName": "Pine Cone",
+                "number": 258228,
+                "salePrice": 2630000000,  # 2.63 TON в nanoTON
+                "salePriceWithoutFee": 2630000000,
+                "floorPriceNanoTONsByCollection": 2500000000,  # 2.5 TON
+                "floorPriceNanoTONsByBackdropModel": None,
+                "isOnSale": True,
+                "modelStickerThumbnailKey": "",
             }
         ],
         "cursor": "next_page_xyz",
+        "total": 1,
     }
     items = parse_mrkt_json(mrkt_resp)
     test("MRKT: 1 item парсится", len(items) == 1)
 
     it = items[0]
     test("MRKT: id", it["id"] == "abc123")
-    test("MRKT: name", it["name"] == "Eternal Rose")
-    test("MRKT: slug", it["slug"] == "eternal-rose-42")
-    test("MRKT: number", it["number"] == "42")
-    test("MRKT: price", it["price"] == 5.5)
-    test("MRKT: floor_price", it["floor_price"] == 8.0)
+    test("MRKT: name из collectionTitle", it["name"] == "Vice Cream")
+    test("MRKT: model_name", it["model_name"] == "Pine Cone")
+    test("MRKT: number", it["number"] == "258228")
+    test("MRKT: salePrice/1e9 = 2.63 TON", abs(it["price"] - 2.63) < 0.0001)
+    test("MRKT: floor (collection) = 2.5 TON", abs(it["floor_price"] - 2.5) < 0.0001)
     test("MRKT: currency=TON", it["currency"] == "TON")
-    test("MRKT: rarity капитализирован", it["rarity"] == "Rare")
-    test("MRKT: image_url", "img.png" in it["image_url"])
 
     # Граничные случаи
-    test("MRKT: price=0 пропускается",
-         len(parse_mrkt_json({"items": [{"id": "x", "name": "X", "price": 0}]})) == 0)
+    test("MRKT: salePrice=0 пропускается",
+         len(parse_mrkt_json({"gifts": [{"id": "x", "name": "X", "salePrice": 0, "isOnSale": True}]})) == 0)
     test("MRKT: без id пропускается",
-         len(parse_mrkt_json({"items": [{"name": "X", "price": 5}]})) == 0)
+         len(parse_mrkt_json({"gifts": [{"name": "X", "salePrice": 1000000000, "isOnSale": True}]})) == 0)
+    test("MRKT: isOnSale=False пропускается",
+         len(parse_mrkt_json({"gifts": [{"id": "y", "name": "Y", "salePrice": 1000000000, "isOnSale": False}]})) == 0)
     test("MRKT: list input поддерживается",
-         len(parse_mrkt_json([{"id": "y", "name": "Y", "price": 3}])) == 1)
+         len(parse_mrkt_json([{"id": "y", "collectionName": "Y", "salePrice": 3000000000, "isOnSale": True}])) == 1)
     test("MRKT: 'data' ключ поддерживается",
-         len(parse_mrkt_json({"data": [{"id": "z", "name": "Z", "price": 2}]})) == 1)
+         len(parse_mrkt_json({"data": [{"id": "z", "collectionName": "Z", "salePrice": 2000000000, "isOnSale": True}]})) == 1)
 
-    cap = parse_mrkt_json({"items": [{"id": "r", "name": "X", "price": 1, "rarity": "EPIC"}]})
-    test("MRKT: rarity capitalize", cap[0]["rarity"] == "Epic")
+    # Floor: backdrop+model приоритетнее collection
+    fbm = parse_mrkt_json({"gifts": [{
+        "id": "f1", "collectionName": "F", "salePrice": 5000000000,
+        "floorPriceNanoTONsByBackdropModel": 4000000000,
+        "floorPriceNanoTONsByCollection": 2000000000,
+        "isOnSale": True,
+    }]})
+    test("MRKT: floor backdropModel приоритет",
+         len(fbm) == 1 and abs(fbm[0]["floor_price"] - 4.0) < 0.001)
 
-    dict_p = parse_mrkt_json({"items": [{"id": "dp", "name": "X", "price": {"amount": 7.5}}]})
-    test("MRKT: price как dict", len(dict_p) == 1 and dict_p[0]["price"] == 7.5)
+    # Запасной: legacy структура с price/floorPrice
+    legacy = parse_mrkt_json({"items": [{"id": "L", "name": "X", "price": 5.5, "floorPrice": 8.0}]})
+    test("MRKT: legacy price/floorPrice fallback",
+         len(legacy) == 1 and legacy[0]["price"] == 5.5 and legacy[0]["floor_price"] == 8.0)
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
@@ -250,34 +266,65 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-print("\n[4] logic.py — parse_portals_graphql")
+print("\n[4] logic.py — parse_portals_search (portal-market.com)")
 # ══════════════════════════════════════════════════════════════════════════════
 try:
-    from logic import parse_portals_graphql
+    from logic import parse_portals_search, parse_portals_graphql
 
+    # Реальный ответ Portals search API
     portals = {
-        "data": {
-            "alphaSearch": {
-                "items": [
-                    {
-                        "address": "EQAbcdef123",
-                        "name": "Eternal Rose",
-                        "sale": {"fullPrice": "5500000000"}  # 5.5 TON в нанотонах
-                    }
-                ]
+        "results": [
+            {
+                "id": "019d23f3-5bf9-7875-a78a-f5e4163abe7f",
+                "tg_id": "ChillFlame-23243",
+                "collection_id": "e6c83d75-726c-4165-8547-4d7766e3f210",
+                "external_collection_number": 23243,
+                "name": "Chill Flame",
+                "photo_url": "https://example.com/chill.png",
+                "price": "2.5",
+                "floor_price": "2.5",
+                "listed_at": "2026-04-17T07:46:42.524546Z",
+                "status": "listed",
+                "attributes": [
+                    {"type": "model", "value": "Eternal Flame", "rarity_per_mille": 3},
+                    {"type": "backdrop", "value": "Chocolate", "rarity_per_mille": 1},
+                    {"type": "symbol", "value": "Magic Hat", "rarity_per_mille": 0.4},
+                ],
             }
-        }
+        ],
+        "total_count": 1,
     }
-    items = parse_portals_graphql(portals)
-    test("Portals: 1 item", len(items) == 1)
+    items = parse_portals_search(portals)
+    test("Portals search: 1 item", len(items) == 1)
     it = items[0]
-    test("Portals: id=address", it["id"] == "EQAbcdef123")
-    test("Portals: price в TON", abs(it["price"] - 5.5) < 0.001)
-    test("Portals: currency=TON", it["currency"] == "TON")
+    test("Portals search: id", it["id"] == "019d23f3-5bf9-7875-a78a-f5e4163abe7f")
+    test("Portals search: name из коллекции", it["name"] == "Chill Flame")
+    test("Portals search: number", it["number"] == "23243")
+    test("Portals search: model", it["model_name"] == "Eternal Flame")
+    test("Portals search: backdrop", it["backdrop_name"] == "Chocolate")
+    test("Portals search: symbol", it["symbol_name"] == "Magic Hat")
+    test("Portals search: price=2.5 TON", abs(it["price"] - 2.5) < 0.001)
+    test("Portals search: floor=2.5 TON", abs(it["floor_price"] - 2.5) < 0.001)
+    test("Portals search: currency=TON", it["currency"] == "TON")
+    test("Portals search: rarity Legendary (rare_per_mille<1)", it["rarity"] == "Legendary")
+    test("Portals search: market=portals", it["market"] == "portals")
 
-    # Нет адреса
-    no_addr = {"data": {"alphaSearch": {"items": [{"name": "X", "sale": {"fullPrice": "1000000000"}}]}}}
-    test("Portals: без address пропускается", len(parse_portals_graphql(no_addr)) == 0)
+    # status != listed → пропускаем
+    sold = {"results": [{**portals["results"][0], "status": "sold"}]}
+    test("Portals search: status=sold пропускается", len(parse_portals_search(sold)) == 0)
+
+    # Без id пропускаем
+    no_id = {"results": [{"name": "X", "price": "1.0", "status": "listed"}]}
+    test("Portals search: без id пропускается", len(parse_portals_search(no_id)) == 0)
+
+    # Legacy GraphQL парсер ещё доступен
+    legacy_gql = {
+        "data": {"alphaSearch": {"items": [{
+            "address": "EQA", "name": "X", "sale": {"fullPrice": "5500000000"}
+        }]}}
+    }
+    test("Portals legacy GraphQL: всё ещё работает",
+         len(parse_portals_graphql(legacy_gql)) == 1)
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
@@ -285,36 +332,139 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-print("\n[5] logic.py — is_profitable (всё в TON)")
+print("\n[5] logic.py — is_profitable (floor-aware)")
 # ══════════════════════════════════════════════════════════════════════════════
 try:
     from logic import is_profitable
+    import settings_store
 
-    # Лимит по умолчанию = 50 TON
-    cheap = {"price": 5.0, "currency": "TON", "rarity": "Rare"}
-    test("is_profitable: 5 TON (лимит 50)", is_profitable(cheap, "mrkt"))
+    # Сбрасываем настройки на дефолтные для воспроизводимости
+    DEFAULTS = {
+        "max_price_ton": 50.0,
+        "floor_tolerance_pct": 0.0,
+        "min_discount_pct": 0,
+        "require_floor": True,
+        "filter_rarity": [],
+        "filter_markets": ["mrkt", "fragment", "portals"],
+        "notifications_on": True,
+    }
+    settings_store.save_settings(DEFAULTS.copy())
 
-    expensive = {"price": 999.0, "currency": "TON"}
-    test("is_profitable: 999 TON → False", not is_profitable(expensive, "mrkt"))
+    # === Базовая floor-логика ===
+    test("is_profitable: 30 при floor=30 (на полу) → True",
+         is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 25 при floor=30 (ниже пола) → True",
+         is_profitable({"price": 25.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 31 при floor=30, tol=0% → False",
+         not is_profitable({"price": 31.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 45 при floor=30 (главный баг!) → False",
+         not is_profitable({"price": 45.0, "floor_price": 30.0}, "mrkt"))
 
-    # 1500 Stars → 6 TON по курсу 0.004 — ниже лимита 50 TON
-    fragment_cheap = {"price": 6.0, "stars_price": 1500, "currency": "TON"}
-    test("is_profitable: 6 TON (Fragment converted)", is_profitable(fragment_cheap, "fragment"))
+    # === Tolerance ===
+    s = DEFAULTS.copy(); s["floor_tolerance_pct"] = 5.0
+    settings_store.save_settings(s)
+    test("is_profitable: 31.5 при floor=30, tol=5% → True (30*1.05=31.5)",
+         is_profitable({"price": 31.5, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 33 при floor=30, tol=5% → False",
+         not is_profitable({"price": 33.0, "floor_price": 30.0}, "mrkt"))
 
-    # 9999 Stars → 39.996 TON — ниже лимита 50, но фильтр маркетов?
-    fragment_high = {"price": 39.996, "stars_price": 9999, "currency": "TON"}
-    test("is_profitable: 39.996 TON (Fragment) — ниже лимита",
-         is_profitable(fragment_high, "fragment"))
+    # === require_floor ===
+    s = DEFAULTS.copy(); s["require_floor"] = True
+    settings_store.save_settings(s)
+    test("is_profitable: floor=None, require_floor=True → False",
+         not is_profitable({"price": 5.0, "floor_price": None}, "mrkt"))
 
-    # Нулевые / некорректные цены
-    test("is_profitable: price=None → False", not is_profitable({"price": None, "currency": "TON"}, "mrkt"))
-    test("is_profitable: price=0 → False", not is_profitable({"price": 0, "currency": "TON"}, "mrkt"))
-    test("is_profitable: price=-1 → False", not is_profitable({"price": -1, "currency": "TON"}, "mrkt"))
+    s = DEFAULTS.copy(); s["require_floor"] = False
+    settings_store.save_settings(s)
+    test("is_profitable: floor=None, require_floor=False, под max → True",
+         is_profitable({"price": 5.0, "floor_price": None}, "mrkt"))
 
-    # TG-маркет (с префиксом tg:) проходит фильтр маркетов
-    tg_msg = {"price": 5.0, "currency": "TON"}
+    # === Лимит max_price_ton ===
+    settings_store.save_settings(DEFAULTS.copy())
+    test("is_profitable: 999 TON выше max=50 → False",
+         not is_profitable({"price": 999.0, "floor_price": 1000.0}, "mrkt"))
+    test("is_profitable: 5 TON ниже max=50 floor=10 → True",
+         is_profitable({"price": 5.0, "floor_price": 10.0}, "mrkt"))
+
+    # === min_discount_pct ===
+    s = DEFAULTS.copy(); s["min_discount_pct"] = 25
+    settings_store.save_settings(s)
+    test("is_profitable: скидка 0% < 25% → False",
+         not is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: скидка 33% (20 от 30) ≥ 25% → True",
+         is_profitable({"price": 20.0, "floor_price": 30.0}, "mrkt"))
+
+    # === Невалидные цены ===
+    settings_store.save_settings(DEFAULTS.copy())
+    test("is_profitable: price=None → False",
+         not is_profitable({"price": None, "floor_price": 10.0}, "mrkt"))
+    test("is_profitable: price=0 → False",
+         not is_profitable({"price": 0, "floor_price": 10.0}, "mrkt"))
+    test("is_profitable: price=-1 → False",
+         not is_profitable({"price": -1, "floor_price": 10.0}, "mrkt"))
+
+    # === Markets filter ===
+    s = DEFAULTS.copy(); s["filter_markets"] = ["mrkt"]
+    settings_store.save_settings(s)
+    test("is_profitable: market=fragment, фильтр=[mrkt] → False",
+         not is_profitable({"price": 5.0, "floor_price": 10.0}, "fragment"))
+    test("is_profitable: market=mrkt, фильтр=[mrkt] → True",
+         is_profitable({"price": 5.0, "floor_price": 10.0}, "mrkt"))
     test("is_profitable: tg:channel префикс пропускает фильтр",
-         is_profitable(tg_msg, "tg:portals_market"))
+         is_profitable({"price": 5.0, "floor_price": 10.0}, "tg:portals_market"))
+
+    # === Rarity filter ===
+    s = DEFAULTS.copy(); s["filter_rarity"] = ["Legendary"]
+    settings_store.save_settings(s)
+    test("is_profitable: rarity=Rare, фильтр=[Legendary] → False",
+         not is_profitable({"price": 5.0, "floor_price": 10.0, "rarity": "Rare"}, "mrkt"))
+    test("is_profitable: rarity=Legendary, фильтр=[Legendary] → True",
+         is_profitable({"price": 5.0, "floor_price": 10.0, "rarity": "Legendary"}, "mrkt"))
+
+    # Восстанавливаем
+    settings_store.save_settings(DEFAULTS.copy())
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[5b] logic.py — compute_floors / apply_floors")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from logic import compute_floors, apply_floors
+
+    gifts = [
+        {"name": "A", "price": 5.0},
+        {"name": "A", "price": 3.5},
+        {"name": "A", "price": 7.0},
+        {"name": "B", "price": 10.0},
+        {"name": "B", "price": 8.0},
+    ]
+    floors = compute_floors(gifts)
+    test("compute_floors: A=3.5", floors.get("A") == 3.5)
+    test("compute_floors: B=8.0", floors.get("B") == 8.0)
+
+    # apply_floors заполняет floor_price там где его нет
+    gifts2 = [
+        {"name": "A", "price": 5.0},
+        {"name": "A", "price": 3.5},
+        {"name": "A", "price": 7.0, "floor_price": 1.0},  # уже есть → не трогаем
+    ]
+    apply_floors(gifts2)
+    test("apply_floors: floor=3.5 для первого",
+         gifts2[0].get("floor_price") == 3.5)
+    test("apply_floors: floor=3.5 для второго",
+         gifts2[1].get("floor_price") == 3.5)
+    test("apply_floors: не перезаписывает существующий floor",
+         gifts2[2].get("floor_price") == 1.0)
+
+    # Edge cases
+    test("compute_floors: пустой список → {}",
+         compute_floors([]) == {})
+    test("compute_floors: невалидные элементы пропускаются",
+         compute_floors([{"name": "X"}, "junk", {"price": 5.0}]) == {})
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")

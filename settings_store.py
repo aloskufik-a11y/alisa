@@ -11,10 +11,12 @@ SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settin
 _lock = threading.Lock()
 
 DEFAULT_SETTINGS: dict = {
-    "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов
-    "min_discount_pct": 0,              # Мин. скидка от Floor (%)
+    "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов (абсолютный потолок)
+    "floor_tolerance_pct": 0.0,         # Допустимое превышение Floor (%). 0 = только floor
+    "min_discount_pct": 0,              # Мин. скидка от Floor (%) (доп. фильтр)
+    "require_floor": True,              # Алертить только лоты с известным floor
     "filter_rarity": [],                # [] = все редкости
-    "filter_markets": ["mrkt", "fragment"],
+    "filter_markets": ["mrkt", "fragment", "portals"],
     "notifications_on": True,
 }
 
