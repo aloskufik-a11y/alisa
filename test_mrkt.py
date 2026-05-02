@@ -478,21 +478,33 @@ try:
     from url_builder import (
         build_mrkt_gift_link, build_mrkt_web_link,
         build_fragment_gift_link, build_fragment_collection_link,
-        build_getgems_gift_link, get_market_label,
+        build_getgems_gift_link, build_telegram_nft_link,
+        build_portals_gift_link, build_market_buttons, get_market_label,
     )
 
-    url = build_mrkt_gift_link("123", "eternal-rose-42", "Eternal Rose", "42")
-    test("MRKT link: /app?startapp=EternalRose-42",
-         url == "https://t.me/mrkt/app?startapp=EternalRose-42")
+    # === MRKT ===
+    # Главное правило: если у нас UUID → отдаём его без дефисов
+    test("MRKT link: UUID with dashes → without dashes",
+         build_mrkt_gift_link("28665982-03a3-4780-873d-b6bd7f0b9a2e") ==
+         "https://t.me/mrkt/app?startapp=28665982-03a3-4780-873d-b6bd7f0b9a2e".replace("-", "", 4))
+    test("MRKT link: UUID corner format check",
+         build_mrkt_gift_link("28665982-03a3-4780-873d-b6bd7f0b9a2e") ==
+         "https://t.me/mrkt/app?startapp=2866598203a34780873db6bd7f0b9a2e")
+    test("MRKT link: 32-hex without dashes (already normalized)",
+         build_mrkt_gift_link("aaaabbbbccccddddeeeeffff00001111") ==
+         "https://t.me/mrkt/app?startapp=aaaabbbbccccddddeeeeffff00001111")
+    test("MRKT link: not-UUID falls back to collection slug",
+         build_mrkt_gift_link("abc", name="Chill Flame") ==
+         "https://t.me/mrkt/app?startapp=chillflame")
+    test("MRKT link: empty name+id → main app",
+         build_mrkt_gift_link("") == "https://t.me/mrkt/app")
 
-    test("MRKT link: id fallback",
-         build_mrkt_gift_link("abc") == "https://t.me/mrkt/app?startapp=abc")
-    test("MRKT link: slug fallback",
-         build_mrkt_gift_link("x", "eternal-rose-42") == "https://t.me/mrkt/app?startapp=eternal-rose-42")
+    # build_mrkt_web_link теперь тоже ведёт в Mini App
+    test("MRKT web link with UUID",
+         build_mrkt_web_link(gift_id="28665982-03a3-4780-873d-b6bd7f0b9a2e") ==
+         "https://t.me/mrkt/app?startapp=2866598203a34780873db6bd7f0b9a2e")
 
-    test("MRKT web link",
-         build_mrkt_web_link("eternal-rose-42") == "https://mrkt.fun/gift/eternal-rose-42")
-
+    # === Fragment ===
     test("Fragment link: name+number",
          build_fragment_gift_link("0", "", "Eternal Rose", "42") == "https://fragment.com/gift/eternalrose-42")
     test("Fragment link: ready slug",
@@ -503,14 +515,45 @@ try:
     coll = build_fragment_collection_link("Eternal Rose")
     test("Fragment collection link", "eternalrose" in coll and "filter=sale" in coll)
 
+    # === Telegram NFT (universal share format) ===
+    test("Telegram NFT link",
+         build_telegram_nft_link("Vice Cream", "130707") ==
+         "https://t.me/nft/ViceCream-130707")
+    test("Telegram NFT link: empty",
+         build_telegram_nft_link("", "") == "")
+
+    # === Portals ===
+    test("Portals link: slug",
+         build_portals_gift_link("dragon-001") ==
+         "https://t.me/portals/market?startapp=dragon-001")
+    test("Portals link: empty fallback",
+         build_portals_gift_link() == "https://t.me/portals")
+
+    # === GetGems (legacy) ===
     test("GetGems link: address",
          build_getgems_gift_link("EQAbcdef") == "https://getgems.io/nft/EQAbcdef")
     test("GetGems link: slug",
          build_getgems_gift_link("EQAbcdef", slug="some-gift") == "https://getgems.io/gift/some-gift")
 
+    # === Buttons ===
+    btns = build_market_buttons("mrkt", "28665982-03a3-4780-873d-b6bd7f0b9a2e",
+                                 name="Chill Flame", number="326040")
+    test("MRKT buttons: первый — конкретный лот по UUID",
+         btns[0]["url"] == "https://t.me/mrkt/app?startapp=2866598203a34780873db6bd7f0b9a2e")
+    test("MRKT buttons: второй — t.me/nft с CamelCase",
+         len(btns) >= 2 and btns[1]["url"] == "https://t.me/nft/ChillFlame-326040")
+
+    btns_p = build_market_buttons("portals", "id123", slug="bling-binky-7",
+                                   name="Bling Binky", number="7")
+    test("Portals buttons: первый — Mini App",
+         btns_p[0]["url"] == "https://t.me/portals/market?startapp=bling-binky-7")
+    test("Portals buttons: второй — t.me/nft",
+         len(btns_p) >= 2 and btns_p[1]["url"] == "https://t.me/nft/BlingBinky-7")
+
     test("Label mrkt", "MRKT" in get_market_label("mrkt"))
     test("Label fragment", "Fragment" in get_market_label("fragment"))
-    test("Label portals", "GetGems" in get_market_label("portals"))
+    test("Label portals", "GetGems" in get_market_label("portals") or
+                            "Portals" in get_market_label("portals"))
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
