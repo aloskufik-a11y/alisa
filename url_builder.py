@@ -183,15 +183,18 @@ def build_telegram_nft_link(name: str, number: str) -> str:
 
 def build_portals_gift_link(slug: str = "", gift_id: str = "") -> str:
     """
-    Deep link для Portals Mini App (portals-market.com).
-    Бот @portals.
+    Deep link на конкретный лот в Portals Mini App.
 
-    Portals использует startapp с slug или ID лота.
+    Bot: @portals_market_bot, путь Mini App: /market.
+    Формат share-ссылки в самом приложении (вытащено из их prod JS):
+      https://t.me/portals_market_bot/market?startapp=gift_{UUID}
+
+    Где UUID — поле `id` из ответа /api/nfts/search (без дефисов сохраняем).
     """
-    param = (slug or gift_id or "").strip()
+    param = (gift_id or slug or "").strip()
     if not param:
-        return "https://t.me/portals"
-    return f"https://t.me/portals/market?startapp={param}"
+        return "https://t.me/portals_market_bot/market"
+    return f"https://t.me/portals_market_bot/market?startapp=gift_{param}"
 
 
 def build_getgems_gift_link(address: str, slug: str = "") -> str:
@@ -243,10 +246,10 @@ def build_market_buttons(
             buttons.append({"text": "📋 Все лоты коллекции", "url": col_link})
 
     elif market in ("portals", "getgems"):
-        # Сначала родной Mini App Portals
-        portals_link = build_portals_gift_link(slug, gift_id)
+        # Родной Mini App Portals (полный share-формат с gift_{UUID})
+        portals_link = build_portals_gift_link(slug=slug, gift_id=gift_id)
         buttons.append({"text": "🟢 Открыть в Portals", "url": portals_link})
-        # Дополнительная — t.me/nft при наличии name+number
+        # Дополнительная — t.me/nft при наличии name+number (нативный TG-просмотр)
         nft_link = build_telegram_nft_link(name, number)
         if nft_link:
             buttons.append({"text": "🎁 Telegram NFT", "url": nft_link})

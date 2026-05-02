@@ -12,11 +12,16 @@ _lock = threading.Lock()
 
 DEFAULT_SETTINGS: dict = {
     "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов (абсолютный потолок)
+    "min_price_ton": 0.0,               # Мин. цена в TON (нижний порог; 0 = без ограничения)
     "floor_tolerance_pct": 0.0,         # Допустимое превышение Floor (%). 0 = только floor
     "min_discount_pct": 0,              # Мин. скидка от Floor (%) (доп. фильтр)
     "require_floor": True,              # Алертить только лоты с известным floor
     "filter_rarity": [],                # [] = все редкости
     "filter_markets": ["mrkt", "fragment", "portals"],
+    "filter_collections": [],           # [] = все коллекции; иначе только эти (по имени)
+    "monochrome_only": False,           # Только лоты с монохромным backdrop
+    "number_filters": [],               # ['low','sub100','round','repeat','lucky','sequential','palindrome','pretty100']
+    "max_rarity_pm": 0,                 # 0 = без фильтра, иначе хотя бы один атрибут ≤ этого pm
     "notifications_on": True,
 }
 

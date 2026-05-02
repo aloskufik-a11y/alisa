@@ -522,12 +522,15 @@ try:
     test("Telegram NFT link: empty",
          build_telegram_nft_link("", "") == "")
 
-    # === Portals ===
-    test("Portals link: slug",
-         build_portals_gift_link("dragon-001") ==
-         "https://t.me/portals/market?startapp=dragon-001")
+    # === Portals (актуальный share-формат: t.me/portals_market_bot/market?startapp=gift_{id}) ===
+    test("Portals link: gift_id",
+         build_portals_gift_link(gift_id="dragon-001") ==
+         "https://t.me/portals_market_bot/market?startapp=gift_dragon-001")
+    test("Portals link: slug fallback",
+         build_portals_gift_link(slug="bling-binky-7") ==
+         "https://t.me/portals_market_bot/market?startapp=gift_bling-binky-7")
     test("Portals link: empty fallback",
-         build_portals_gift_link() == "https://t.me/portals")
+         build_portals_gift_link() == "https://t.me/portals_market_bot/market")
 
     # === GetGems (legacy) ===
     test("GetGems link: address",
@@ -546,7 +549,7 @@ try:
     btns_p = build_market_buttons("portals", "id123", slug="bling-binky-7",
                                    name="Bling Binky", number="7")
     test("Portals buttons: первый — Mini App",
-         btns_p[0]["url"] == "https://t.me/portals/market?startapp=bling-binky-7")
+         btns_p[0]["url"] == "https://t.me/portals_market_bot/market?startapp=gift_id123")
     test("Portals buttons: второй — t.me/nft",
          len(btns_p) >= 2 and btns_p[1]["url"] == "https://t.me/nft/BlingBinky-7")
 
@@ -688,6 +691,214 @@ try:
 
     del os.environ["TEST_INT_VAR"]
     test("config: missing var → default", _env_int("MISSING_VAR_XYZ", 99) == 99)
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[11] logic.py — number_categories (фильтр номеров)")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from logic import number_categories
+
+    test("#7 → sub100/low/lucky",
+         number_categories(7) == {"sub100", "low", "lucky"})
+    test("#42 → sub100/low",
+         number_categories(42) == {"sub100", "low"})
+    test("#100 → sub100∉, low, round, pretty100",
+         number_categories(100) == {"low", "round", "pretty100"})
+    test("#777 → low/repeat/lucky",
+         number_categories(777) == {"low", "repeat", "lucky"})
+    test("#1000 → round/pretty100 (но не low: >999)",
+         number_categories(1000) == {"round", "pretty100"})
+    test("#10000 → round/pretty100",
+         number_categories(10000) == {"round", "pretty100"})
+    test("#11111 → repeat",
+         number_categories(11111) == {"repeat"})
+    test("#1234 → sequential",
+         number_categories(1234) == {"sequential"})
+    test("#9876 → sequential (по убыванию)",
+         number_categories(9876) == {"sequential"})
+    test("#121 → low/palindrome",
+         number_categories(121) == {"low", "palindrome"})
+    test("#12321 → palindrome",
+         number_categories(12321) == {"palindrome"})
+    test("#999 → low/repeat",
+         number_categories(999) == {"low", "repeat"})
+    test("#9999 → repeat (не low)",
+         number_categories(9999) == {"repeat"})
+    test("#42013 → empty",
+         number_categories(42013) == set())
+    test("#'42' → low/sub100 (string OK)",
+         number_categories("42") == {"sub100", "low"})
+    test("None → empty", number_categories(None) == set())
+    test("0 → empty", number_categories(0) == set())
+    test("negative → empty", number_categories(-5) == set())
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[12] logic.py — is_monochrome")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from logic import is_monochrome
+
+    # Синяя палитра — все близки к hue 220
+    blue_palette = [0x336699, 0x4477AA, 0x224488, 0x55AABB]
+    test("Монохром: вариации синего", is_monochrome(blue_palette))
+
+    # Красно-зелёно-синяя радуга — НЕ монохром
+    rainbow = [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00]
+    test("Не монохром: радуга", not is_monochrome(rainbow))
+
+    # Серая шкала
+    grays = [0x202020, 0x808080, 0xD0D0D0]
+    test("Монохром: grayscale (низкая насыщенность)", is_monochrome(grays))
+
+    # Один цвет → False (нужно ≥2)
+    test("Один цвет → False", not is_monochrome([0xFF0000]))
+
+    # Пустой список → False
+    test("Пустой список → False", not is_monochrome([]))
+
+    # Близкие зелёные оттенки (все hue ~ 120, без бирюзы)
+    greens = [0x00AA00, 0x00CC00, 0x33BB22]
+    test("Монохром: зелёные оттенки", is_monochrome(greens))
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[13] is_profitable — новые фильтры (monochrome/numbers/collections/min_price)")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from logic import is_profitable
+    import settings_store
+
+    # Перед каждым тестом мы пересохраняем settings, чтобы не было утечек
+    base = {
+        "max_price_ton": 50,
+        "min_price_ton": 0,
+        "floor_tolerance_pct": 0,
+        "min_discount_pct": 0,
+        "require_floor": False,
+        "filter_rarity": [],
+        "filter_markets": [],
+        "filter_collections": [],
+        "monochrome_only": False,
+        "number_filters": [],
+        "max_rarity_pm": 0,
+        "notifications_on": True,
+    }
+
+    def with_settings(**overrides):
+        s = base.copy()
+        s.update(overrides)
+        settings_store.save_settings(s)
+        return s
+
+    gift_low_num = {
+        "name": "Test", "price": 5.0, "floor_price": 5.0, "number": 42,
+        "colors": [0x336699, 0x4477AA, 0x224488],
+        "rarities_pm": {"model": 5.0, "backdrop": 12.0, "symbol": 0.8},
+    }
+    gift_high_num = dict(gift_low_num); gift_high_num["number"] = 42013
+    gift_no_color = dict(gift_low_num); gift_no_color["colors"] = [0xFF0000, 0x00FF00, 0x0000FF]
+
+    # min_price_ton отсекает дешёвые
+    with_settings(min_price_ton=10.0)
+    test("min_price_ton: 5 < 10 → не выгодно", not is_profitable(gift_low_num))
+
+    with_settings(min_price_ton=1.0)
+    test("min_price_ton: 5 ≥ 1 → выгодно", is_profitable(gift_low_num))
+
+    # number_filters
+    with_settings(number_filters=["lucky"])
+    test("number_filters lucky: #42 не lucky → не выгодно", not is_profitable(gift_low_num))
+
+    with_settings(number_filters=["low", "lucky"])
+    test("number_filters low+lucky: #42 low → выгодно", is_profitable(gift_low_num))
+
+    with_settings(number_filters=["low"])
+    test("number_filters low: #42013 не low → не выгодно", not is_profitable(gift_high_num))
+
+    # monochrome_only
+    with_settings(monochrome_only=True)
+    test("monochrome_only: синий backdrop → выгодно", is_profitable(gift_low_num))
+    test("monochrome_only: радуга → не выгодно", not is_profitable(gift_no_color))
+
+    # filter_collections
+    with_settings(filter_collections=["Test"])
+    test("filter_collections: Test в списке → выгодно", is_profitable(gift_low_num))
+
+    with_settings(filter_collections=["Other"])
+    test("filter_collections: Test не в списке → не выгодно", not is_profitable(gift_low_num))
+
+    # max_rarity_pm — symbol=0.8 ≤ 1
+    with_settings(max_rarity_pm=1.0)
+    test("max_rarity_pm: symbol 0.8 ≤ 1 → выгодно", is_profitable(gift_low_num))
+
+    with_settings(max_rarity_pm=0.5)
+    test("max_rarity_pm: ни один атрибут ≤ 0.5 → не выгодно", not is_profitable(gift_low_num))
+
+    # Сброс на дефолты после теста
+    settings_store.save_settings(base)
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[14] floor_cache.py — apply_authoritative_floors")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from floor_cache import (
+        apply_authoritative_floors,
+        _set_mrkt_floors_for_test,
+        _set_portals_floors_for_test,
+        _clear_caches_for_test,
+        mrkt_floor,
+        portals_floor_by_display_name,
+    )
+
+    _clear_caches_for_test()
+    _set_mrkt_floors_for_test({"Vice Cream": 2.5, "Plush Pepe": 6994.99})
+
+    gifts = [
+        {"name": "Vice Cream", "price": 3.0, "floor_price": 3.0},
+        {"name": "Plush Pepe", "price": 7000.0, "floor_price": None},
+        {"name": "Unknown",    "price": 1.0, "floor_price": 0.5},
+    ]
+    n = apply_authoritative_floors(gifts, market="mrkt")
+    test("MRKT floors: 2 коллекции в кэше — 2 апплая", n == 2)
+    test("MRKT floors: Vice Cream → 2.5", gifts[0]["floor_price"] == 2.5)
+    test("MRKT floors: Plush Pepe → 6994.99", gifts[1]["floor_price"] == 6994.99)
+    test("MRKT floors: Unknown не тронут", gifts[2]["floor_price"] == 0.5)
+    test("mrkt_floor lookup", mrkt_floor("Vice Cream") == 2.5)
+
+    _set_portals_floors_for_test({"plushpepe": 6994.99, "icecream": 2.94})
+    pgifts = [
+        {"name": "Plush Pepe", "price": 7000.0, "floor_price": None},
+        {"name": "Ice Cream",  "price": 5.0,    "floor_price": None},
+        {"name": "Unknown",    "price": 1.0,    "floor_price": None},
+    ]
+    n2 = apply_authoritative_floors(pgifts, market="portals")
+    test("Portals floors: 2 апплая", n2 == 2)
+    test("Portals floors: Plush Pepe → 6994.99", pgifts[0]["floor_price"] == 6994.99)
+    test("Portals floors: short_name lookup",
+         portals_floor_by_display_name("Plush Pepe") == 6994.99)
+
+    _clear_caches_for_test()
+    test("После очистки кэша — не апплаит",
+         apply_authoritative_floors(gifts, market="mrkt") == 0)
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")

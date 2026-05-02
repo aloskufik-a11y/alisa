@@ -35,12 +35,19 @@ BOT_TOKEN: str = _env_str("BOT_TOKEN", "")
 USER_ID: int = _env_int("USER_ID", 0)
 
 # ── Каналы/боты для прослушивания через userbot ────────────────────────────────
-# Можно переопределить через .env (CHANNELS=portals,main_mrkt_bot,MRKT)
+# Можно переопределить через .env (CHANNELS=portals,portals_market_bot,main_mrkt_bot,MRKT)
 _channels_env = _env_str("CHANNELS", "")
 CHANNELS_TO_MONITOR: list[str] = (
     [c.strip() for c in _channels_env.split(",") if c.strip()]
     if _channels_env else
-    ["portals", "main_mrkt_bot", "MRKT"]
+    [
+        # MRKT
+        "main_mrkt_bot",
+        "MRKT",
+        # Portals — публичный канал и сам бот, оба отдают новые лоты
+        "portals",
+        "portals_market_bot",
+    ]
 )
 
 # ── Интервалы опроса (секунды) ─────────────────────────────────────────────────

@@ -113,6 +113,150 @@ def _nano_to_ton(value) -> Optional[float]:
     return round(v / _NANO, 6)
 
 
+# ─── Цвета: преобразование RGB-int → монохромность ───────────────────────────
+
+def _rgb_int_to_hsl(rgb_int: int) -> tuple[float, float, float]:
+    """
+    MRKT хранит цвета как одно 24-битное int значение (например 9015944 = 0x898E08).
+    Возвращает (H в [0..360), S в [0..1], L в [0..1]).
+    """
+    r = ((rgb_int >> 16) & 0xFF) / 255.0
+    g = ((rgb_int >> 8) & 0xFF) / 255.0
+    b = (rgb_int & 0xFF) / 255.0
+    cmax = max(r, g, b)
+    cmin = min(r, g, b)
+    delta = cmax - cmin
+    L = (cmax + cmin) / 2.0
+    if delta == 0:
+        H = 0.0
+    elif cmax == r:
+        H = ((g - b) / delta) % 6
+    elif cmax == g:
+        H = ((b - r) / delta) + 2
+    else:
+        H = ((r - g) / delta) + 4
+    H *= 60.0
+    if H < 0:
+        H += 360.0
+    S = 0.0 if delta == 0 else delta / (1 - abs(2 * L - 1))
+    return H, S, L
+
+
+def _hue_distance(h1: float, h2: float) -> float:
+    """Кратчайшее расстояние между двумя hue (0..180)."""
+    d = abs(h1 - h2) % 360
+    return min(d, 360 - d)
+
+
+def is_monochrome(rgb_ints: list[int], hue_threshold: float = 25.0) -> bool:
+    """
+    Проверяет, что переданные RGB-int цвета лежат в одном цветовом диапазоне.
+
+    Алгоритм: если у всех цветов почти нулевая насыщенность (<0.15) — это
+    серая палитра, считаем монохромом. Иначе все hue должны быть в пределах
+    `hue_threshold` градусов друг от друга.
+
+    `rgb_ints` — список (обычно 2-4) целых RGB значений.
+    """
+    if not rgb_ints or len(rgb_ints) < 2:
+        return False
+    hsl = []
+    for v in rgb_ints:
+        if v is None:
+            continue
+        try:
+            iv = int(v)
+        except (TypeError, ValueError):
+            continue
+        hsl.append(_rgb_int_to_hsl(iv))
+    if len(hsl) < 2:
+        return False
+    sats = [s for _, s, _ in hsl]
+    # Если все цвета почти серые — монохром (grayscale)
+    if max(sats) < 0.15:
+        return True
+    # Игнорируем серые "акценты" — берём только насыщенные оттенки
+    coloured_hues = [h for h, s, _ in hsl if s >= 0.15]
+    if not coloured_hues:
+        return True
+    h0 = coloured_hues[0]
+    return all(_hue_distance(h0, h) <= hue_threshold for h in coloured_hues[1:])
+
+
+# ─── Номера подарков: low/round/repeat/lucky/twin ────────────────────────────
+
+def number_categories(num) -> set[str]:
+    """
+    Возвращает set категорий, которым соответствует номер подарка.
+
+    Категории:
+      'low'       — #1-#999 (трёхзначные включительно)
+      'sub100'    — #1-#99
+      'round'     — степени 10 (10, 100, 1000, 10000, 100000)
+      'pretty100' — кратные 100 (100, 200, 300, 1500, 2000…)
+      'repeat'    — все цифры одинаковые (777, 11111, 999999)
+      'lucky'     — содержит только 7 (7, 77, 777…)
+      'sequential'— цифры идут по возрастанию или убыванию (123, 1234, 9876)
+      'palindrome'— читается одинаково в обе стороны (121, 12321)
+    """
+    cats: set[str] = set()
+    try:
+        n = int(num)
+    except (TypeError, ValueError):
+        return cats
+    if n <= 0:
+        return cats
+    s = str(n)
+    if n <= 99:
+        cats.add("sub100")
+    if n <= 999:
+        cats.add("low")
+    # round = 10**k
+    if n in (10, 100, 1000, 10_000, 100_000, 1_000_000):
+        cats.add("round")
+    if n >= 100 and n % 100 == 0:
+        cats.add("pretty100")
+    # repeat — все цифры одинаковые. Для одноцифренных номеров ставить repeat
+    # бессмысленно (там нет «повтора»), требуем длину ≥2.
+    if len(s) >= 2 and len(set(s)) == 1:
+        cats.add("repeat")
+    if set(s) == {"7"}:
+        cats.add("lucky")
+    if len(s) >= 3:
+        asc = all(int(s[i]) + 1 == int(s[i + 1]) for i in range(len(s) - 1))
+        desc = all(int(s[i]) - 1 == int(s[i + 1]) for i in range(len(s) - 1))
+        if asc or desc:
+            cats.add("sequential")
+    # Палиндромом считаем только нетривиальные случаи: длина ≥3 И не все
+    # цифры одинаковые. Иначе #777 / #11111 уходили бы и в repeat и в palindrome,
+    # хотя пользователю это две разные категории по смыслу.
+    if len(s) >= 3 and s == s[::-1] and len(set(s)) > 1:
+        cats.add("palindrome")
+    return cats
+
+
+_NUM_FILTER_LABELS = {
+    "low":        "💯 Низкий (#1-#999)",
+    "sub100":     "🥇 Топ-100 (#1-#99)",
+    "round":      "⭕ Круглый (10/100/1000…)",
+    "pretty100":  "🔢 Кратный 100",
+    "repeat":     "🔁 Повтор (777, 11111…)",
+    "lucky":      "🍀 Lucky (777, 7777…)",
+    "sequential": "↗️ Последовательный (123, 4321)",
+    "palindrome": "🔄 Палиндром (121, 12321)",
+}
+
+
+def number_filter_label(cat: str) -> str:
+    """Человекочитаемое имя категории номеров для UI."""
+    return _NUM_FILTER_LABELS.get(cat, cat)
+
+
+def all_number_filter_categories() -> list[str]:
+    """Канонический порядок категорий номеров для UI."""
+    return list(_NUM_FILTER_LABELS.keys())
+
+
 def parse_mrkt_json(json_data: dict) -> list:
     """
     Парсит ответ MRKT API /api/v1/gifts/saling.
@@ -236,13 +380,51 @@ def parse_mrkt_json(json_data: dict) -> list:
             stars_price_raw = item.get("stars_price") or item.get("starsPrice")
             stars_price = _safe_float(stars_price_raw) if stars_price_raw else None
 
+            backdrop_name = _extract_str(item, "backdropName", default="")
+            symbol_name = _extract_str(item, "symbolName", default="")
+
+            # Цвета backdrop'а — для детекта монохромности
+            colors = []
+            for ck in (
+                "backdropColorsCenterColor",
+                "backdropColorsEdgeColor",
+                "backdropColorsSymbolColor",
+                "backdropColorsTextColor",
+            ):
+                cv = item.get(ck)
+                if cv is not None:
+                    try:
+                        colors.append(int(cv))
+                    except (TypeError, ValueError):
+                        pass
+
+            # Per-mille rarities (вес атрибута, чем меньше — тем реже)
+            def _pm(v):
+                if v is None:
+                    return None
+                try:
+                    fv = float(v)
+                    return fv if fv > 0 else None
+                except (TypeError, ValueError):
+                    return None
+
+            rarities_pm = {
+                "model": _pm(item.get("modelRarityPerMille")),
+                "backdrop": _pm(item.get("backdropRarityPerMille")),
+                "symbol": _pm(item.get("symbolRarityPerMille")),
+            }
+
             results.append({
                 "id": gift_id,
                 "name": gift_name,
                 "model_name": model_name,
+                "backdrop_name": backdrop_name,
+                "symbol_name": symbol_name,
+                "colors": colors,                  # list[int] для is_monochrome()
+                "rarities_pm": rarities_pm,        # {model, backdrop, symbol} per-mille
                 "slug": api_slug,
                 "number": number,
-                "price": round(price, 6),         # TON
+                "price": round(price, 6),          # TON
                 "price_ton": round(price, 6),
                 "stars_price": stars_price,
                 "floor_price": floor,              # TON
@@ -605,12 +787,29 @@ def parse_portals_search(json_data: dict) -> list:
             slug = tg_id.lower().replace(" ", "") if tg_id else \
                 f"{gift_name.lower().replace(' ', '')}-{number}" if gift_name and number else gift_id
 
+            # Per-mille rarities раздельно (для UI/фильтров)
+            rarities_pm: dict[str, float | None] = {"model": None, "backdrop": None, "symbol": None}
+            for a in attrs:
+                if not isinstance(a, dict):
+                    continue
+                t = a.get("type")
+                pm = a.get("rarity_per_mille")
+                if t in rarities_pm and pm is not None:
+                    try:
+                        fv = float(pm)
+                        if fv > 0:
+                            rarities_pm[t] = fv
+                    except (TypeError, ValueError):
+                        pass
+
             results.append({
                 "id": gift_id,
                 "name": gift_name,
                 "model_name": model,
                 "backdrop_name": backdrop,
                 "symbol_name": symbol,
+                "colors": [],                       # Portals не отдаёт цвета backdrop'а
+                "rarities_pm": rarities_pm,
                 "slug": slug,
                 "number": number,
                 "price": round(price, 6),
@@ -620,7 +819,7 @@ def parse_portals_search(json_data: dict) -> list:
                 "rarity": rarity,
                 "currency": "TON",
                 "image_url": _extract_str(item, "photo_url", "image_url"),
-                "url": f"https://t.me/portals/market?startapp=gift_{gift_id}",
+                "url": f"https://t.me/portals_market_bot/market?startapp=gift_{gift_id}",
                 "market": "portals",
             })
 
@@ -713,12 +912,17 @@ def normalize_market(market: str) -> str:
 # ─── Фильтр выгодности (всё в TON) ──────────────────────────────────────────
 
 DEFAULT_S: dict = {
-    "max_price_ton": 50.0,        # Макс. цена в TON (абсолютный потолок)
+    "max_price_ton": 50.0,         # Макс. цена в TON (абсолютный потолок)
+    "min_price_ton": 0.0,          # Мин. цена в TON (нижний порог; 0 = без ограничения)
     "floor_tolerance_pct": 0.0,    # Сколько % сверху от floor допускать (0 = только floor)
     "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%)
     "require_floor": True,         # Если True — без known floor лот не выгоден
     "filter_rarity": [],           # Белый список редкостей
     "filter_markets": ["mrkt", "fragment", "portals"],
+    "filter_collections": [],      # Если непусто — алертим только эти коллекции (по name)
+    "monochrome_only": False,      # Только лоты с монохромным backdrop (одного цвета)
+    "number_filters": [],          # ['low','sub100','round','repeat','lucky',...] OR-логика
+    "max_rarity_pm": 0,            # Если >0 — атрибут с rarity_per_mille ≤ этого считается редким
     "notifications_on": True,
 }
 
@@ -767,11 +971,16 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
 
     Цепочка проверок:
       1. Маркет в белом списке.
-      2. Цена валидна и ниже max_price_ton.
+      2. Цена валидна, лежит в [min_price_ton, max_price_ton].
       3. Floor-aware: цена ≤ floor × (1 + floor_tolerance_pct / 100).
          Если require_floor=True и floor неизвестен — НЕ выгодно.
-      4. min_discount_pct (опционально, доп. ограничение).
+      4. min_discount_pct (опционально, доп. ограничение от floor).
       5. Редкость в белом списке (если задан).
+      6. Коллекция в белом списке (если задан).
+      7. number_filters (если непустой) — номер должен совпасть хотя бы с одной
+         категорией: low / sub100 / round / repeat / lucky / sequential / palindrome.
+      8. monochrome_only — backdrop одного цветового семейства.
+      9. max_rarity_pm — хотя бы один атрибут (model/backdrop/symbol) ≤ этого порога.
     """
     try:
         from settings_store import load_settings
@@ -791,12 +1000,16 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     if price is None or not isinstance(price, (int, float)) or price <= 0:
         return False
 
-    # 3. Цена ниже абсолютного потолка
+    # 2a. Цена в диапазоне [min_price_ton, max_price_ton]
+    min_price_ton = float(s.get("min_price_ton", 0.0) or 0.0)
+    if min_price_ton > 0 and price < min_price_ton:
+        return False
+
     max_price_ton = float(s.get("max_price_ton", DEFAULT_S["max_price_ton"]))
     if max_price_ton > 0 and price > max_price_ton:
         return False
 
-    # 4. Floor-aware: лот должен быть на полу или у пола
+    # 3. Floor-aware: лот должен быть на полу или у пола
     floor = gift_data.get("floor_price")
     floor_valid = isinstance(floor, (int, float)) and floor > 0
     require_floor = bool(s.get("require_floor", DEFAULT_S["require_floor"]))
@@ -811,7 +1024,7 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         # Без known floor мы не можем гарантировать выгодность
         return False
 
-    # 5. Минимальная скидка от floor (если требуется)
+    # 4. Минимальная скидка от floor (если требуется)
     min_discount = int(s.get("min_discount_pct", 0))
     if min_discount > 0:
         if not floor_valid:
@@ -820,11 +1033,44 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         if discount_pct < min_discount:
             return False
 
-    # 6. Редкость
+    # 5. Редкость (текстовая)
     rarity_filter = s.get("filter_rarity", [])
     if rarity_filter:
         rarity = gift_data.get("rarity", "")
         if not rarity or rarity not in rarity_filter:
+            return False
+
+    # 6. Коллекция (если задан белый список)
+    col_filter = s.get("filter_collections", [])
+    if col_filter:
+        gift_name = (gift_data.get("name") or "").strip()
+        if not gift_name or gift_name not in col_filter:
+            return False
+
+    # 7. Фильтры по номеру подарка (OR)
+    number_filters = s.get("number_filters", [])
+    if number_filters:
+        cats = number_categories(gift_data.get("number"))
+        if not cats.intersection(number_filters):
+            return False
+
+    # 8. Монохромный backdrop
+    if bool(s.get("monochrome_only", False)):
+        colors = gift_data.get("colors") or []
+        if not is_monochrome(colors):
+            return False
+
+    # 9. Редкий атрибут (минимальный per-mille)
+    max_rarity_pm = float(s.get("max_rarity_pm", 0) or 0)
+    if max_rarity_pm > 0:
+        rar_pm = gift_data.get("rarities_pm") or {}
+        # Хотя бы один из атрибутов должен быть ≤ порога
+        ok = False
+        for v in rar_pm.values():
+            if v is not None and v <= max_rarity_pm:
+                ok = True
+                break
+        if not ok:
             return False
 
     return True

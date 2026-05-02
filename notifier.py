@@ -19,12 +19,17 @@ from aiogram.types import (
 from config import BOT_TOKEN, USER_ID
 from settings_store import load_settings, save_settings
 from url_builder import (
-    build_mrkt_gift_link,
     build_mrkt_web_link,
-    build_fragment_gift_link,
-    build_fragment_collection_link,
+    build_market_buttons,
 )
-from logic import format_price, format_stars, _fragment_name_to_slug
+from logic import (
+    format_price,
+    format_stars,
+    number_categories,
+    is_monochrome,
+    number_filter_label,
+    all_number_filter_categories,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,21 +55,66 @@ _start_time: datetime = datetime.now()
 
 def main_menu_kb() -> InlineKeyboardMarkup:
     s = load_settings()
-    notif_icon = "🔔" if s["notifications_on"] else "🔕"
+    notif_icon = "🔔" if s.get("notifications_on", True) else "🔕"
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Цена и Floor",         callback_data="menu_price")],
+        [InlineKeyboardButton(text="🎯 Фильтры подарков",     callback_data="menu_filters")],
+        [InlineKeyboardButton(text="🏪 Маркеты",              callback_data="menu_markets")],
+        [InlineKeyboardButton(text=f"{notif_icon} Уведомления", callback_data="toggle_notif")],
+        [InlineKeyboardButton(text="📊 Текущие настройки",     callback_data="show_settings")],
+        [InlineKeyboardButton(text="📈 Статус бота",           callback_data="show_status")],
+        [InlineKeyboardButton(text="🎁 Тест-уведомление",       callback_data="test_random_gift")],
+    ])
+
+
+def price_menu_kb() -> InlineKeyboardMarkup:
+    s = load_settings()
     require_floor = bool(s.get("require_floor", True))
     rf_icon = "🟢" if require_floor else "⚪"
+    max_p = s.get("max_price_ton", 50)
+    min_p = s.get("min_price_ton", 0) or 0
+    floor_tol = float(s.get("floor_tolerance_pct", 0))
+    min_disc = int(s.get("min_discount_pct", 0))
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💎 Макс. цена (TON)",                callback_data="set_max_ton")],
-        [InlineKeyboardButton(text="📐 Допуск над Floor (%)",            callback_data="set_floor_tol")],
-        [InlineKeyboardButton(text="📉 Мин. скидка от Floor (%)",        callback_data="set_discount")],
-        [InlineKeyboardButton(text=f"{rf_icon} Только с известным Floor", callback_data="toggle_require_floor")],
-        [InlineKeyboardButton(text="✨ Фильтр по редкости",              callback_data="menu_rarity")],
-        [InlineKeyboardButton(text="🏪 Активные маркеты",                callback_data="menu_markets")],
-        [InlineKeyboardButton(text=f"{notif_icon} Уведомления",          callback_data="toggle_notif")],
-        [InlineKeyboardButton(text="📊 Текущие настройки",               callback_data="show_settings")],
-        [InlineKeyboardButton(text="📈 Статус бота",                     callback_data="show_status")],
-        [InlineKeyboardButton(text="🎁 Тест — случайный подарок",        callback_data="test_random_gift")],
+        [InlineKeyboardButton(text=f"💎 Макс. цена: {max_p} TON",               callback_data="set_max_ton")],
+        [InlineKeyboardButton(text=f"💵 Мин. цена: {min_p} TON",                callback_data="set_min_ton")],
+        [InlineKeyboardButton(text=f"📐 Допуск над Floor: {floor_tol:g}%",      callback_data="set_floor_tol")],
+        [InlineKeyboardButton(text=f"📉 Мин. скидка от Floor: {min_disc}%",     callback_data="set_discount")],
+        [InlineKeyboardButton(text=f"{rf_icon} Только с известным Floor",       callback_data="toggle_require_floor")],
+        [InlineKeyboardButton(text="◀️ Назад",                                  callback_data="back_main")],
     ])
+
+
+def filters_menu_kb() -> InlineKeyboardMarkup:
+    s = load_settings()
+    mono = bool(s.get("monochrome_only", False))
+    mono_icon = "🟢" if mono else "⚪"
+    rar_n = len(s.get("filter_rarity", []))
+    col_n = len(s.get("filter_collections", []))
+    num_n = len(s.get("number_filters", []))
+    rar_pm = float(s.get("max_rarity_pm", 0) or 0)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{mono_icon} Только монохромные backdrop",  callback_data="toggle_monochrome")],
+        [InlineKeyboardButton(text=f"#️⃣ По номеру подарка ({num_n})",          callback_data="menu_numbers")],
+        [InlineKeyboardButton(text=f"✨ По редкости ({rar_n})",                  callback_data="menu_rarity")],
+        [InlineKeyboardButton(text=f"💠 Макс. rarity (per-mille): {rar_pm:g}",   callback_data="set_max_rarity_pm")],
+        [InlineKeyboardButton(text=f"📚 По коллекциям ({col_n})",                callback_data="menu_collections")],
+        [InlineKeyboardButton(text="◀️ Назад",                                  callback_data="back_main")],
+    ])
+
+
+def numbers_kb() -> InlineKeyboardMarkup:
+    s = load_settings()
+    active = set(s.get("number_filters", []))
+    rows = []
+    for cat in all_number_filter_categories():
+        icon = "✅" if cat in active else "⬜"
+        rows.append([InlineKeyboardButton(
+            text=f"{icon} {number_filter_label(cat)}",
+            callback_data=f"num_{cat}"
+        )])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="menu_filters")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def rarity_kb() -> InlineKeyboardMarkup:
@@ -75,7 +125,45 @@ def rarity_kb() -> InlineKeyboardMarkup:
     for r in rarities:
         icon = "✅" if r in active else "⬜"
         rows.append([InlineKeyboardButton(text=f"{icon} {r}", callback_data=f"rarity_{r}")])
-    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="menu_filters")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def collections_kb(page: int = 0) -> InlineKeyboardMarkup:
+    """
+    Показывает список коллекций из MRKT floor cache (если есть) с тогглами.
+    Поддерживает простую пагинацию по 10 в страницу.
+    """
+    from floor_cache import _mrkt
+    s = load_settings()
+    active = set(s.get("filter_collections", []))
+    all_cols = sorted(_mrkt._data.keys()) if _mrkt._data else []
+    if not all_cols:
+        # Берём отсюда же что юзер уже добавил (хотя бы можно убрать)
+        all_cols = sorted(active)
+
+    PAGE = 10
+    pages = max(1, (len(all_cols) + PAGE - 1) // PAGE)
+    page = max(0, min(page, pages - 1))
+    chunk = all_cols[page * PAGE: (page + 1) * PAGE]
+
+    rows = []
+    for c in chunk:
+        icon = "✅" if c in active else "⬜"
+        rows.append([InlineKeyboardButton(text=f"{icon} {c}", callback_data=f"col_{c[:60]}")])
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="◀️ Стр.", callback_data=f"colpage_{page-1}"))
+    nav.append(InlineKeyboardButton(text=f"{page+1}/{pages}", callback_data="colpage_noop"))
+    if page < pages - 1:
+        nav.append(InlineKeyboardButton(text="Стр. ▶️", callback_data=f"colpage_{page+1}"))
+    if nav:
+        rows.append(nav)
+
+    if active:
+        rows.append([InlineKeyboardButton(text=f"🗑 Сбросить ({len(active)})", callback_data="col_reset")])
+    rows.append([InlineKeyboardButton(text="◀️ Назад", callback_data="menu_filters")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -83,9 +171,9 @@ def markets_kb() -> InlineKeyboardMarkup:
     s = load_settings()
     active = s.get("filter_markets", [])
     markets = [
-        ("mrkt",     "🟣 MRKT (tgmrkt.io)"),
+        ("mrkt",     "🟣 MRKT (mrkt.fun)"),
         ("fragment", "🔵 Fragment.com"),
-        ("portals",  "🟢 GetGems (Portals)"),
+        ("portals",  "🟢 Portals (portal-market.com)"),
     ]
     rows = []
     for key, name in markets:
@@ -95,9 +183,9 @@ def markets_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def back_kb() -> InlineKeyboardMarkup:
+def back_kb(target: str = "back_main") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="◀️ Назад", callback_data="back_main")]
+        [InlineKeyboardButton(text="◀️ Назад", callback_data=target)]
     ])
 
 
@@ -163,35 +251,214 @@ async def back_main(callback: CallbackQuery):
     await callback.answer()
 
 
+@dp.callback_query(F.data == "menu_price")
+async def menu_price(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "💎 <b>Цена и Floor</b>\n\n"
+        "Здесь задаются ценовые границы и поведение Floor-фильтра.\n"
+        "<i>Floor — авторитетная минимальная цена коллекции с маркета.</i>",
+        reply_markup=price_menu_kb()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_filters")
+async def menu_filters(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🎯 <b>Фильтры подарков</b>\n\n"
+        "Что должно «попасть» в карточку выгодного лота помимо цены.",
+        reply_markup=filters_menu_kb()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "menu_numbers")
+async def menu_numbers(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "#️⃣ <b>Фильтр по номеру подарка</b>\n\n"
+        "Категории применяются как «или» — лот пройдёт, если номер совпадает "
+        "хотя бы с одной выбранной категорией. Если ничего не выбрано — фильтр выключен.",
+        reply_markup=numbers_kb()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("num_"))
+async def toggle_number(callback: CallbackQuery):
+    cat = callback.data.removeprefix("num_")
+    s = load_settings()
+    nums = list(s.get("number_filters", []))
+    if cat in nums:
+        nums.remove(cat)
+    else:
+        if cat in all_number_filter_categories():
+            nums.append(cat)
+    s["number_filters"] = nums
+    save_settings(s)
+    await callback.message.edit_reply_markup(reply_markup=numbers_kb())
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "toggle_monochrome")
+async def toggle_monochrome(callback: CallbackQuery):
+    s = load_settings()
+    s["monochrome_only"] = not bool(s.get("monochrome_only", False))
+    save_settings(s)
+    state = "включён ✅" if s["monochrome_only"] else "выключен ⚪"
+    await callback.answer(f"Монохром-фильтр {state}", show_alert=True)
+    await callback.message.edit_reply_markup(reply_markup=filters_menu_kb())
+
+
+@dp.callback_query(F.data == "menu_collections")
+async def menu_collections(callback: CallbackQuery):
+    from floor_cache import _mrkt
+    if not _mrkt._data:
+        text = (
+            "📚 <b>Фильтр по коллекциям</b>\n\n"
+            "Список коллекций ещё не загружен из MRKT.\n"
+            "Подожди 1-2 минуты после старта бота — кэш floor'ов "
+            "обновляется в фоне."
+        )
+    else:
+        text = (
+            "📚 <b>Фильтр по коллекциям</b>\n\n"
+            f"Загружено: <b>{len(_mrkt._data)}</b> коллекций.\n"
+            "Если ни одна не выбрана — алертим обо всех."
+        )
+    await callback.message.edit_text(text, reply_markup=collections_kb(page=0))
+    await callback.answer()
+
+
+@dp.callback_query(F.data.startswith("colpage_"))
+async def col_page(callback: CallbackQuery):
+    raw = callback.data.removeprefix("colpage_")
+    if raw == "noop":
+        await callback.answer()
+        return
+    try:
+        page = int(raw)
+    except ValueError:
+        await callback.answer()
+        return
+    await callback.message.edit_reply_markup(reply_markup=collections_kb(page=page))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "col_reset")
+async def col_reset(callback: CallbackQuery):
+    s = load_settings()
+    s["filter_collections"] = []
+    save_settings(s)
+    await callback.answer("Коллекции сброшены", show_alert=False)
+    await callback.message.edit_reply_markup(reply_markup=collections_kb(page=0))
+
+
+@dp.callback_query(F.data.startswith("col_"))
+async def toggle_collection(callback: CallbackQuery):
+    name = callback.data.removeprefix("col_")
+    if not name or name == "reset":
+        await callback.answer()
+        return
+    s = load_settings()
+    cols = list(s.get("filter_collections", []))
+    if name in cols:
+        cols.remove(name)
+    else:
+        cols.append(name)
+    s["filter_collections"] = cols
+    save_settings(s)
+    await callback.message.edit_reply_markup(reply_markup=collections_kb(page=0))
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "set_max_rarity_pm")
+async def set_max_rarity_pm_prompt(callback: CallbackQuery):
+    s = load_settings()
+    _pending_input[callback.from_user.id] = "rarity_pm"
+    cur = float(s.get("max_rarity_pm", 0) or 0)
+    await callback.message.edit_text(
+        "💠 <b>Максимальный rarity (per-mille)</b>\n\n"
+        "Лот пройдёт, если ХОТЯ БЫ ОДИН его атрибут (model/backdrop/symbol) "
+        "имеет rarity_per_mille ≤ заданного значения.\n\n"
+        "<b>Шкала:</b>\n"
+        "  &lt; 1   — Legendary\n"
+        "  &lt; 5   — Epic\n"
+        "  &lt; 30  — Rare\n"
+        "  &lt; 100 — Uncommon\n"
+        "  ≥ 100   — Common\n\n"
+        f"Текущее: <b>{cur:g}</b> (0 = без фильтра).\n"
+        "Отправь число от 0 до 1000:",
+        reply_markup=back_kb("menu_filters")
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "set_min_ton")
+async def set_min_ton_prompt(callback: CallbackQuery):
+    s = load_settings()
+    _pending_input[callback.from_user.id] = "min_ton"
+    cur = float(s.get("min_price_ton", 0) or 0)
+    await callback.message.edit_text(
+        "💵 <b>Минимальная цена (TON)</b>\n\n"
+        "Не алертить лоты дешевле этого значения. Полезно отсечь "
+        "копеечные лоты, которые часто оказываются скамом или мусором.\n\n"
+        f"Текущее: <b>{cur} TON</b>\n"
+        "Отправь число (0 = без ограничения):",
+        reply_markup=back_kb("menu_price")
+    )
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "show_settings")
 async def show_settings(callback: CallbackQuery):
     s = load_settings()
     from rate_provider import rate_provider
     await rate_provider.ensure_fresh()
 
-    rarity_text  = ", ".join(s["filter_rarity"]) if s["filter_rarity"] else "Все"
-    market_map   = {"mrkt": "MRKT", "fragment": "Fragment", "portals": "GetGems"}
-    markets_text = ", ".join(market_map.get(m, m) for m in s.get("filter_markets", [])) or "Все"
-    notif_text   = "Включены ✅" if s["notifications_on"] else "Выключены 🔕"
-    discount_text = f"{s['min_discount_pct']}%" if s['min_discount_pct'] > 0 else "Без фильтра"
+    rarity_text  = ", ".join(s["filter_rarity"]) if s["filter_rarity"] else "все"
+    market_map   = {"mrkt": "MRKT", "fragment": "Fragment", "portals": "Portals"}
+    markets_text = ", ".join(market_map.get(m, m) for m in s.get("filter_markets", [])) or "все"
+    notif_text   = "Включены ✅" if s.get("notifications_on", True) else "Выключены 🔕"
+    discount_text = f"{s['min_discount_pct']}%" if s.get("min_discount_pct", 0) > 0 else "без фильтра"
 
     floor_tol = float(s.get("floor_tolerance_pct", 0.0))
     floor_tol_text = f"+{floor_tol:g}%" if floor_tol > 0 else "только пол (0%)"
     require_floor = bool(s.get("require_floor", True))
-    rf_text = "Да ✅" if require_floor else "Нет (риск ложных алертов) ⚠️"
+    rf_text = "да ✅" if require_floor else "нет (риск ложных алертов) ⚠️"
 
     stars_equiv = _fmt_int(rate_provider.ton_to_stars(s["max_price_ton"]))
 
+    cols = s.get("filter_collections", [])
+    cols_text = (", ".join(cols[:5]) + (f" +{len(cols)-5}" if len(cols) > 5 else "")) if cols else "все"
+
+    nums = s.get("number_filters", [])
+    nums_text = ", ".join(number_filter_label(n).split(" ", 1)[-1] for n in nums) if nums else "без фильтра"
+
+    mono_text = "да 🟢" if s.get("monochrome_only", False) else "нет ⚪"
+
+    rar_pm = float(s.get("max_rarity_pm", 0) or 0)
+    rar_pm_text = f"≤ {rar_pm:g} pm" if rar_pm > 0 else "без фильтра"
+
+    min_ton = float(s.get("min_price_ton", 0) or 0)
+    min_ton_text = f"{min_ton} TON" if min_ton > 0 else "без ограничения"
+
     text = (
-        f"📊 <b>Текущие настройки:</b>\n\n"
-        f"💎 Макс. цена: <b>{s['max_price_ton']} TON</b>\n"
-        f"   <i>≈ {stars_equiv} ⭐ на Fragment по текущему курсу</i>\n\n"
-        f"📐 Допуск над Floor: <b>{floor_tol_text}</b>\n"
-        f"📉 Мин. скидка от Floor: <b>{discount_text}</b>\n"
-        f"🟢 Требовать known Floor: <b>{rf_text}</b>\n\n"
-        f"✨ Редкости: <b>{rarity_text}</b>\n"
-        f"🏪 Маркеты: <b>{markets_text}</b>\n"
-        f"🔔 Уведомления: <b>{notif_text}</b>"
+        f"📊 <b>Текущие настройки</b>\n\n"
+        f"<b>💎 Цена и Floor</b>\n"
+        f"  • Макс. цена: <b>{s['max_price_ton']} TON</b> "
+        f"<i>(≈ {stars_equiv} ⭐)</i>\n"
+        f"  • Мин. цена: <b>{min_ton_text}</b>\n"
+        f"  • Допуск над Floor: <b>{floor_tol_text}</b>\n"
+        f"  • Мин. скидка от Floor: <b>{discount_text}</b>\n"
+        f"  • Требовать known Floor: <b>{rf_text}</b>\n\n"
+        f"<b>🎯 Фильтры подарков</b>\n"
+        f"  • Монохром: <b>{mono_text}</b>\n"
+        f"  • Номера: <b>{nums_text}</b>\n"
+        f"  • Редкости: <b>{rarity_text}</b>\n"
+        f"  • Макс. rarity (per-mille): <b>{rar_pm_text}</b>\n"
+        f"  • Коллекции: <b>{cols_text}</b>\n\n"
+        f"<b>🏪 Маркеты:</b> {markets_text}\n"
+        f"<b>🔔 Уведомления:</b> {notif_text}"
     )
     await callback.message.edit_text(text, reply_markup=back_kb())
     await callback.answer()
@@ -206,7 +473,7 @@ async def show_status_cb(callback: CallbackQuery):
 @dp.callback_query(F.data == "toggle_notif")
 async def toggle_notif(callback: CallbackQuery):
     s = load_settings()
-    s["notifications_on"] = not s["notifications_on"]
+    s["notifications_on"] = not s.get("notifications_on", True)
     save_settings(s)
     status = "включены ✅" if s["notifications_on"] else "выключены 🔕"
     await callback.answer(f"Уведомления {status}", show_alert=True)
@@ -279,7 +546,7 @@ async def set_max_ton_prompt(callback: CallbackQuery):
         f"Текущее: <b>{s['max_price_ton']} TON</b>\n"
         f"<i>≈ {stars_equiv} ⭐ по текущему курсу</i>\n\n"
         f"Отправь число (например: <code>25.5</code>):",
-        reply_markup=back_kb()
+        reply_markup=back_kb("menu_price")
     )
     await callback.answer()
 
@@ -293,7 +560,7 @@ async def set_discount_prompt(callback: CallbackQuery):
         f"Текущее: <b>{s['min_discount_pct']}%</b>\n\n"
         f"Отправь число от 0 до 99\n"
         f"(0 = без фильтра по скидке):",
-        reply_markup=back_kb()
+        reply_markup=back_kb("menu_price")
     )
     await callback.answer()
 
@@ -310,7 +577,7 @@ async def set_floor_tol_prompt(callback: CallbackQuery):
         f"<b>5%</b> = плюс лоты до 5% выше Floor.\n\n"
         f"Текущее: <b>{cur:g}%</b>\n\n"
         f"Отправь число от 0 до 50:",
-        reply_markup=back_kb()
+        reply_markup=back_kb("menu_price")
     )
     await callback.answer()
 
@@ -323,7 +590,7 @@ async def toggle_require_floor(callback: CallbackQuery):
     save_settings(s)
     status = "только с известным Floor ✅" if s["require_floor"] else "разрешены лоты без Floor ⚠️"
     await callback.answer(f"Теперь: {status}", show_alert=True)
-    await callback.message.edit_reply_markup(reply_markup=main_menu_kb())
+    await callback.message.edit_reply_markup(reply_markup=price_menu_kb())
 
 
 @dp.message(F.text.regexp(r"^\d+([\.,]\d+)?$"))
@@ -372,14 +639,38 @@ async def handle_number_input(message: types.Message):
 
     elif pending == "floor_tol":
         if value_f < 0 or value_f > 50:
-            await message.answer("⚠️ Введи значение от 0 до 50.", reply_markup=main_menu_kb())
+            await message.answer("⚠️ Введи значение от 0 до 50.", reply_markup=price_menu_kb())
             return
         s["floor_tolerance_pct"] = round(value_f, 2)
         save_settings(s)
         label = f"+{s['floor_tolerance_pct']:g}%" if s["floor_tolerance_pct"] > 0 else "только пол (0%)"
         await message.answer(
             f"✅ Допуск над Floor: <b>{label}</b>",
-            reply_markup=main_menu_kb()
+            reply_markup=price_menu_kb()
+        )
+
+    elif pending == "min_ton":
+        if value_f < 0 or value_f > 100_000:
+            await message.answer("⚠️ Введи значение от 0 до 100 000 TON.", reply_markup=price_menu_kb())
+            return
+        s["min_price_ton"] = round(value_f, 4)
+        save_settings(s)
+        label = f"{s['min_price_ton']} TON" if s["min_price_ton"] > 0 else "без ограничения"
+        await message.answer(
+            f"✅ Мин. цена: <b>{label}</b>",
+            reply_markup=price_menu_kb()
+        )
+
+    elif pending == "rarity_pm":
+        if value_f < 0 or value_f > 1000:
+            await message.answer("⚠️ Введи значение от 0 до 1000.", reply_markup=filters_menu_kb())
+            return
+        s["max_rarity_pm"] = round(value_f, 3)
+        save_settings(s)
+        label = f"≤ {s['max_rarity_pm']:g} pm" if s["max_rarity_pm"] > 0 else "без фильтра"
+        await message.answer(
+            f"✅ Макс. rarity: <b>{label}</b>",
+            reply_markup=filters_menu_kb()
         )
 
     else:
@@ -395,8 +686,9 @@ RANDOM_GIFT_NAMES = [
     "Eternal Rose", "Golden Star", "Neon Skull", "Crystal Dragon",
     "Mystic Flame", "Lucky Clover", "Iron Crown", "Shadow Wolf",
     "Diamond Ring", "Cosmic Cat", "Plush Pepe", "Lol Pop",
+    "Vice Cream", "Chill Flame", "Snake Box",
 ]
-RANDOM_MARKETS  = ["mrkt", "fragment"]
+RANDOM_MARKETS  = ["mrkt", "fragment", "portals"]
 RANDOM_RARITIES = ["Legendary", "Epic", "Rare", "Uncommon"]
 
 
@@ -414,9 +706,22 @@ async def test_random_gift(callback: CallbackQuery):
     price_ton = round(random.uniform(0.5, 30.0), 2)
     floor_ton = round(price_ton + random.uniform(1.0, 15.0), 2)
 
+    # Случайная палитра — иногда монохромная (одного hue)
+    if random.random() < 0.5:
+        # монохром: вариации одного hue (синий)
+        colors = [0x336699, 0x4477AA, 0x224488, 0x55AABB]
+    else:
+        # разные цвета
+        colors = [0xFF0000, 0x00FF00, 0x0000FF, 0xFFFF00]
+
     gift: dict = {
         "id": fake_id,
         "name": name,
+        "model_name": "Test Model",
+        "backdrop_name": "Test Backdrop",
+        "symbol_name": "Test Symbol",
+        "colors": colors,
+        "rarities_pm": {"model": 5.0, "backdrop": 12.0, "symbol": 0.8},
         "slug": f"{name.lower().replace(' ', '-')}-{number}",
         "number": number,
         "rarity": rarity,
@@ -435,7 +740,7 @@ async def test_random_gift(callback: CallbackQuery):
         gift["floor_stars"] = floor_stars
         gift["url"] = f"https://fragment.com/gift/{name.replace(' ', '').lower()}-{number}"
 
-    await callback.answer("✅ Тестовое уведомление отправлено!")
+    await callback.answer("Тест отправлен")
     await send_gift_alert(bot, USER_ID, gift, market)
 
 
@@ -483,50 +788,43 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
     Отправляет карточку подарка в Telegram.
     Все цены в TON. Stars показываются как дополнительная инфо для Fragment.
     """
-    name      = gift.get("name", "Unknown")
-    number    = gift.get("number", "")
-    slug      = gift.get("slug", "")
-    raw_id    = gift.get("id", "")
-    price     = gift.get("price", 0)        # TON
-    floor     = gift.get("floor_price")     # TON
-    rarity    = gift.get("rarity", "")
-    image_url = gift.get("image_url", "")
-    stars_price = gift.get("stars_price")   # Stars (оригинал для Fragment)
-    floor_stars = gift.get("floor_stars")   # Stars floor (для Fragment)
+    name        = gift.get("name", "Unknown")
+    number      = gift.get("number", "")
+    slug        = gift.get("slug", "")
+    raw_id      = gift.get("id", "")
+    price       = gift.get("price", 0)        # TON
+    floor       = gift.get("floor_price")     # TON
+    rarity      = gift.get("rarity", "")
+    image_url   = gift.get("image_url", "")
+    stars_price = gift.get("stars_price")     # Stars (оригинал для Fragment)
+    floor_stars = gift.get("floor_stars")     # Stars floor (для Fragment)
+    model       = gift.get("model_name", "")
+    backdrop    = gift.get("backdrop_name", "")
+    symbol      = gift.get("symbol_name", "")
+    colors      = gift.get("colors", [])
+    rar_pm      = gift.get("rarities_pm", {}) or {}
 
-    # ── Ссылки и кнопки ─────────────────────────────────────────────────────
+    # ── Кнопки ───────────────────────────────────────────────────────────────
+    btn_specs = build_market_buttons(market, raw_id, slug=slug, name=name, number=number)
+    buttons = [
+        [InlineKeyboardButton(text=b["text"], url=b["url"])] for b in btn_specs
+    ] if btn_specs else []
+
+    market_icons = {
+        "mrkt": "🟣 MRKT", "main_mrkt_bot": "🟣 MRKT",
+        "fragment": "🔵 Fragment",
+        "portals": "🟢 Portals", "getgems": "🟢 Portals",
+    }
+    market_icon = market_icons.get(market, market)
+
+    # Доп. кнопка веб-MRKT (на случай, если Mini App недоступна)
     if market in ("mrkt", "main_mrkt_bot"):
-        tg_link  = build_mrkt_gift_link(raw_id, slug, name, number)
         web_link = build_mrkt_web_link(slug, raw_id)
-        frag_slug = f"{_fragment_name_to_slug(name)}-{number}" if name and number else None
-        frag_url  = f"https://fragment.com/gift/{frag_slug}" if frag_slug else None
+        if web_link and web_link != "https://mrkt.fun":
+            buttons.append([InlineKeyboardButton(text="🌐 Веб (mrkt.fun)", url=web_link)])
 
-        market_icon = "🟣 MRKT"
-        gift_url    = tg_link
-        buttons = [
-            [InlineKeyboardButton(text="🟣 Открыть в MRKT",       url=tg_link)],
-            [InlineKeyboardButton(text="🌐 Веб (mrkt.fun)",        url=web_link)],
-        ]
-        if frag_url:
-            buttons.append([InlineKeyboardButton(text="🔵 Посмотреть на Fragment", url=frag_url)])
-
-    elif market == "fragment":
-        gift_url   = gift.get("url") or build_fragment_gift_link(raw_id, slug, name, number)
-        col_url    = build_fragment_collection_link(name) if name else "https://fragment.com/gifts"
-        market_icon = "🔵 Fragment"
-        buttons = [
-            [InlineKeyboardButton(text="🔵 Открыть на Fragment",   url=gift_url)],
-            [InlineKeyboardButton(text="📋 Все лоты коллекции",    url=col_url)],
-        ]
-
-    elif market in ("portals", "getgems"):
-        gift_url   = f"https://getgems.io/nft/{raw_id}"
-        market_icon = "🟢 GetGems"
-        buttons = [[InlineKeyboardButton(text="🟢 Открыть на GetGems", url=gift_url)]]
-
-    else:
-        gift_url   = f"https://t.me/{market}"
-        market_icon = market
+    if not buttons:
+        gift_url = f"https://t.me/{market}"
         buttons = [[InlineKeyboardButton(text="🔗 Открыть", url=gift_url)]]
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
@@ -542,16 +840,22 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
 
     floor_line    = ""
     discount_line = ""
-    if floor and isinstance(floor, (int, float)) and floor > 0:
-        floor_str  = format_price(floor)
-        # Для Fragment добавляем Stars-эквивалент floor
+    floor_valid   = isinstance(floor, (int, float)) and floor > 0
+    if floor_valid:
+        floor_str = format_price(floor)
         floor_stars_hint = ""
         if floor_stars and market == "fragment":
             floor_stars_hint = f" <i>({format_stars(floor_stars)})</i>"
         floor_line = f"\n📊 Floor: <b>{floor_str}</b>{floor_stars_hint}"
-        if price > 0 and floor > price:
+        # Скидка/наценка относительно floor
+        if price > 0 and floor > price + 1e-9:
             pct = round((floor - price) / floor * 100, 1)
-            discount_line = f"\n📉 Скидка: <b>{pct}%</b> ниже Floor"
+            discount_line = f"\n📉 Скидка: <b>−{pct}%</b> от Floor"
+        elif price > 0 and abs(floor - price) <= 1e-6:
+            discount_line = "\n🎯 <b>Ровно по Floor</b>"
+        elif price > 0 and price > floor:
+            pct = round((price - floor) / floor * 100, 1)
+            discount_line = f"\n⬆️ <b>+{pct}%</b> над Floor"
 
     rarity_emoji_map = {
         "Legendary": "🟡", "Epic": "🟣", "Rare": "🔵",
@@ -560,12 +864,41 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
     rarity_icon = rarity_emoji_map.get(rarity, "✨")
     rarity_line = f"\n{rarity_icon} Редкость: <b>{rarity}</b>" if rarity else ""
 
+    # Атрибуты model/backdrop/symbol с per-mille (если есть)
+    attr_lines = []
+    for label, val, key in (
+        ("Модель",   model,    "model"),
+        ("Фон",      backdrop, "backdrop"),
+        ("Символ",   symbol,   "symbol"),
+    ):
+        if not val:
+            continue
+        pm = rar_pm.get(key)
+        pm_str = f" <i>({pm:g}‰)</i>" if isinstance(pm, (int, float)) and pm > 0 else ""
+        attr_lines.append(f"  • {label}: <b>{val}</b>{pm_str}")
+    attrs_block = ("\n" + "\n".join(attr_lines)) if attr_lines else ""
+
+    badges = []
+    cats = number_categories(number)
+    cat_emoji = {
+        "lucky": "🍀", "repeat": "🔁", "round": "⭕",
+        "sub100": "🥇", "low": "💯", "pretty100": "🔢",
+        "sequential": "↗️", "palindrome": "🔄",
+    }
+    for c in sorted(cats):
+        if c in cat_emoji:
+            badges.append(cat_emoji[c])
+    if colors and is_monochrome(colors):
+        badges.append("🎨")
+    badges_line = ("\n" + " ".join(badges)) if badges else ""
+
     caption = (
         f"🚀 <b>Выгодный лот!</b>\n\n"
         f"🎁 <b>{name}{num_text}</b>"
         f"{rarity_line}\n"
         f"💰 Цена: <b>{price_str}</b>{stars_hint}"
-        f"{floor_line}{discount_line}\n"
+        f"{floor_line}{discount_line}"
+        f"{attrs_block}{badges_line}\n"
         f"🏪 {market_icon}"
     )
 

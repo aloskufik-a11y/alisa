@@ -24,6 +24,11 @@ from logic import (
     format_price,
     apply_floors,
 )
+from floor_cache import (
+    apply_authoritative_floors,
+    refresh_mrkt_loop,
+    refresh_portals_loop,
+)
 from notifier import bot
 from config import MRKT_POLL_INTERVAL
 
@@ -182,6 +187,18 @@ def _make_payload(cursor: str = "", count: int = MRKT_PAGE_SIZE) -> dict:
 
 # ─── Основной цикл MRKT ───────────────────────────────────────────────────────
 
+# Общие "ссылки" на текущую MRKT-сессию/токен — нужны фоновому таску фетча floors
+_mrkt_state: dict = {"session": None, "token": None}
+
+
+def _mrkt_session_factory():
+    return _mrkt_state.get("session")
+
+
+def _mrkt_token_factory():
+    return _mrkt_state.get("token")
+
+
 async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
     """
     Мониторинг MRKT (mrkt.fun) с пагинацией и авто-обновлением токена.
@@ -196,6 +213,14 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
     connector = aiohttp.TCPConnector(limit=5, ttl_dns_cache=300, keepalive_timeout=30)
     async with aiohttp.ClientSession(connector=connector) as session:
         token = await _mrkt_auth(session, init_data)
+        # Делимся session+token с background-таском refresh_mrkt_loop
+        _mrkt_state["session"] = session
+        _mrkt_state["token"] = token
+        # Запускаем фоновое обновление авторитетных floors (раз в FLOOR_REFRESH_SEC)
+        floor_task = asyncio.create_task(
+            refresh_mrkt_loop(_mrkt_session_factory, _mrkt_token_factory),
+            name="mrkt_floor_refresh",
+        )
         _debug_logged = False
         backoff = 10.0
         consecutive_errors = 0
@@ -248,12 +273,14 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                             token_refresh_count += 1
                             if token_refresh_count > 3:
                                 logger.error("MRKT: токен не обновляется, перезапуск...")
+                                floor_task.cancel()
                                 return
                             # Пробуем получить новый tgWebAppData
                             new_init = await get_tg_web_data(MRKT_BOT_NAME, MRKT_WEB_URL)
                             if new_init:
                                 init_data = new_init
                                 token = await _mrkt_auth(session, init_data)
+                                _mrkt_state["token"] = token
                             break  # Прерываем пагинацию, попробуем на следующей итерации
 
                         elif response.status == 429:
@@ -279,13 +306,15 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                             break
 
                 if all_listings:
-                    # Считаем floor по collection name из текущего batch.
-                    # Если API сам отдал floor — он уже в gift["floor_price"].
+                    # 1. Авторитетный floor из MRKT collections endpoint (≈ актуальный floor маркета).
+                    overridden = apply_authoritative_floors(all_listings, market="mrkt")
+                    # 2. Запасной — batch-derived (если кэш ещё не успел залиться).
                     apply_floors(all_listings, key="name")
                     logger.info(
                         f"MRKT: итого {len(all_listings)} лотов "
-                        f"(floor посчитан для коллекций: "
-                        f"{len({g['name'] for g in all_listings if g.get('floor_price')})})"
+                        f"(authoritative floor применён к {overridden}, "
+                        f"всего с floor: "
+                        f"{sum(1 for g in all_listings if g.get('floor_price'))})"
                     )
                     await process_listings("mrkt", all_listings)
 
@@ -303,6 +332,7 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
 
             if consecutive_errors >= 5:
                 logger.warning("MRKT: 5 ошибок подряд, перезапуск сессии")
+                floor_task.cancel()
                 return
 
             await asyncio.sleep(interval)
@@ -367,6 +397,17 @@ PORTALS_PAGE_SIZE = 30
 PORTALS_MAX_PAGES = 3
 
 
+_portals_state: dict = {"session": None, "init_data": None}
+
+
+def _portals_session_factory():
+    return _portals_state.get("session")
+
+
+def _portals_init_factory():
+    return _portals_state.get("init_data")
+
+
 async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
     """
     Мониторинг Portals Market (portal-market.com). Цены в TON.
@@ -380,6 +421,12 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
 
     connector = aiohttp.TCPConnector(limit=5, ttl_dns_cache=300, keepalive_timeout=30)
     async with aiohttp.ClientSession(connector=connector) as session:
+        _portals_state["session"] = session
+        _portals_state["init_data"] = init_data
+        floor_task = asyncio.create_task(
+            refresh_portals_loop(_portals_session_factory, _portals_init_factory),
+            name="portals_floor_refresh",
+        )
         _debug_logged = False
         backoff = 10.0
         consecutive_errors = 0
@@ -432,6 +479,7 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                                 new_init = await get_tg_web_data(PORTALS_BOT_NAME, PORTALS_WEB_URL)
                                 if new_init:
                                     init_data = new_init
+                                    _portals_state["init_data"] = init_data
                                 break
                             elif response.status == 429:
                                 jitter = random.uniform(0, backoff * 0.3)
@@ -463,11 +511,14 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                         if it["id"] not in seen_ids:
                             seen_ids.add(it["id"])
                             unique.append(it)
-                    # apply_floors — на случай, если API не отдал floor
+                    # 1. Авторитетный floor из Portals collections-floors endpoint
+                    overridden = apply_authoritative_floors(unique, market="portals")
+                    # 2. Запасной — batch-derived
                     apply_floors(unique, key="name")
                     logger.info(
                         f"Portals: итого {len(unique)} лотов "
-                        f"(floor известен: {sum(1 for g in unique if g.get('floor_price'))})"
+                        f"(authoritative floor применён к {overridden}, "
+                        f"floor известен: {sum(1 for g in unique if g.get('floor_price'))})"
                     )
                     backoff = 10.0
                     await process_listings("portals", unique)
@@ -486,6 +537,7 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
 
             if consecutive_errors >= 5:
                 logger.warning("Portals: 5 ошибок подряд, перезапуск сессии")
+                floor_task.cancel()
                 return
 
             await asyncio.sleep(interval)
