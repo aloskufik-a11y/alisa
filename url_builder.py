@@ -185,16 +185,17 @@ def build_portals_gift_link(slug: str = "", gift_id: str = "") -> str:
     """
     Deep link на конкретный лот в Portals Mini App.
 
-    Bot: @portals_market_bot, путь Mini App: /market.
-    Формат share-ссылки в самом приложении (вытащено из их prod JS):
-      https://t.me/portals_market_bot/market?startapp=gift_{UUID}
-
-    Где UUID — поле `id` из ответа /api/nfts/search (без дефисов сохраняем).
+    Используется верифицированный короткий username @portals — он алиас
+    для @portals_market_bot, оба пути ведут в один Mini App. В их prod JS:
+        publickBotUrl = "https://t.me/portals_market_bot/market"
+        link = `${publickBotUrl}?startapp=gift_${e.id}`
+    Мы отдаём более понятную пользователю короткую версию — она отображается
+    в Telegram как «Portals Market» с верифицированной галочкой.
     """
     param = (gift_id or slug or "").strip()
     if not param:
-        return "https://t.me/portals_market_bot/market"
-    return f"https://t.me/portals_market_bot/market?startapp=gift_{param}"
+        return "https://t.me/portals/market"
+    return f"https://t.me/portals/market?startapp=gift_{param}"
 
 
 def build_getgems_gift_link(address: str, slug: str = "") -> str:

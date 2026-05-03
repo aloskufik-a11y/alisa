@@ -56,14 +56,56 @@ _start_time: datetime = datetime.now()
 def main_menu_kb() -> InlineKeyboardMarkup:
     s = load_settings()
     notif_icon = "🔔" if s.get("notifications_on", True) else "🔕"
-    return InlineKeyboardMarkup(inline_keyboard=[
+    mini_app_url = s.get("mini_app_url") or ""
+    rows = [
         [InlineKeyboardButton(text="💎 Цена и Floor",         callback_data="menu_price")],
         [InlineKeyboardButton(text="🎯 Фильтры подарков",     callback_data="menu_filters")],
         [InlineKeyboardButton(text="🏪 Маркеты",              callback_data="menu_markets")],
-        [InlineKeyboardButton(text=f"{notif_icon} Уведомления", callback_data="toggle_notif")],
+        [InlineKeyboardButton(text=f"{notif_icon} Уведомления", callback_data="menu_notifs")],
         [InlineKeyboardButton(text="📊 Текущие настройки",     callback_data="show_settings")],
         [InlineKeyboardButton(text="📈 Статус бота",           callback_data="show_status")],
         [InlineKeyboardButton(text="🎁 Тест-уведомление",       callback_data="test_random_gift")],
+    ]
+    # Если задан URL — показываем кнопку запуска Mini App
+    if mini_app_url:
+        try:
+            from aiogram.types import WebAppInfo
+            rows.insert(
+                0,
+                [InlineKeyboardButton(
+                    text="🪄 Открыть Web App с лентой",
+                    web_app=WebAppInfo(url=mini_app_url),
+                )]
+            )
+        except Exception:
+            pass
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def notifs_menu_kb() -> InlineKeyboardMarkup:
+    s = load_settings()
+    on = bool(s.get("notifications_on", True))
+    icon_main = "🔔" if on else "🔕"
+    mrkt_on = bool(s.get("mrkt_alerts_on", True))
+    frag_on = bool(s.get("fragment_alerts_on", True))
+    port_on = bool(s.get("portals_alerts_on", True))
+    qs = int(s.get("quiet_hours_start", 0) or 0)
+    qe = int(s.get("quiet_hours_end", 0) or 0)
+    quiet_text = "выкл." if qs == qe else f"{qs:02d}:00–{qe:02d}:00 UTC"
+    cycle = int(s.get("max_alerts_per_cycle", 0) or 0)
+    cycle_text = f"{cycle}/цикл" if cycle > 0 else "без лимита"
+    rare_mode = "🟢" if bool(s.get("recent_rare_mode", False)) else "⚪"
+    rare_pm = float(s.get("recent_rare_pm", 5.0) or 5.0)
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"{icon_main} Все уведомления",                callback_data="toggle_notif")],
+        [InlineKeyboardButton(text=f"{'✅' if mrkt_on else '⬜'} 🟣 MRKT алерты",  callback_data="toggle_mrkt_alerts")],
+        [InlineKeyboardButton(text=f"{'✅' if frag_on else '⬜'} 🔵 Fragment алерты", callback_data="toggle_fragment_alerts")],
+        [InlineKeyboardButton(text=f"{'✅' if port_on else '⬜'} 🟢 Portals алерты", callback_data="toggle_portals_alerts")],
+        [InlineKeyboardButton(text=f"🌙 Тихие часы: {quiet_text}",                callback_data="set_quiet_hours")],
+        [InlineKeyboardButton(text=f"📊 Лимит: {cycle_text}",                     callback_data="set_max_per_cycle")],
+        [InlineKeyboardButton(text=f"{rare_mode} Редкие свежие (≤{rare_pm:g}‰)", callback_data="toggle_recent_rare")],
+        [InlineKeyboardButton(text=f"💠 Порог редкости: {rare_pm:g}‰",            callback_data="set_recent_rare_pm")],
+        [InlineKeyboardButton(text="◀️ Назад",                                    callback_data="back_main")],
     ])
 
 
@@ -476,8 +518,109 @@ async def toggle_notif(callback: CallbackQuery):
     s["notifications_on"] = not s.get("notifications_on", True)
     save_settings(s)
     status = "включены ✅" if s["notifications_on"] else "выключены 🔕"
-    await callback.answer(f"Уведомления {status}", show_alert=True)
-    await callback.message.edit_reply_markup(reply_markup=main_menu_kb())
+    await callback.answer(f"Уведомления {status}")
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "menu_notifs")
+async def menu_notifs(callback: CallbackQuery):
+    await callback.message.edit_text(
+        "🔔 <b>Уведомления и парсинг</b>\n\n"
+        "  • <b>Per-market</b>: можно отключить алерты от любого маркета.\n"
+        "  • <b>Тихие часы</b>: окно UTC, в которое алерты не отправляются.\n"
+        "  • <b>Лимит</b>: максимум алертов за один цикл опроса (per market).\n"
+        "  • <b>Редкие свежие</b>: дополнительный режим — алертит даже если "
+        "цена выше floor, если у лота есть редкий атрибут (≤ порог ‰).",
+        reply_markup=notifs_menu_kb()
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "toggle_mrkt_alerts")
+async def toggle_mrkt_alerts(callback: CallbackQuery):
+    s = load_settings()
+    s["mrkt_alerts_on"] = not bool(s.get("mrkt_alerts_on", True))
+    save_settings(s)
+    await callback.answer("MRKT: " + ("вкл" if s["mrkt_alerts_on"] else "выкл"))
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "toggle_fragment_alerts")
+async def toggle_fragment_alerts(callback: CallbackQuery):
+    s = load_settings()
+    s["fragment_alerts_on"] = not bool(s.get("fragment_alerts_on", True))
+    save_settings(s)
+    await callback.answer("Fragment: " + ("вкл" if s["fragment_alerts_on"] else "выкл"))
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "toggle_portals_alerts")
+async def toggle_portals_alerts(callback: CallbackQuery):
+    s = load_settings()
+    s["portals_alerts_on"] = not bool(s.get("portals_alerts_on", True))
+    save_settings(s)
+    await callback.answer("Portals: " + ("вкл" if s["portals_alerts_on"] else "выкл"))
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "toggle_recent_rare")
+async def toggle_recent_rare(callback: CallbackQuery):
+    s = load_settings()
+    s["recent_rare_mode"] = not bool(s.get("recent_rare_mode", False))
+    save_settings(s)
+    await callback.answer("Режим: " + ("вкл 🟢" if s["recent_rare_mode"] else "выкл ⚪"), show_alert=True)
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "set_recent_rare_pm")
+async def set_recent_rare_pm_prompt(callback: CallbackQuery):
+    _pending_input[callback.from_user.id] = "recent_rare_pm"
+    s = load_settings()
+    cur = float(s.get("recent_rare_pm", 5.0) or 5.0)
+    await callback.message.edit_text(
+        "💠 <b>Порог редкости (per-mille) для режима «Редкие свежие»</b>\n\n"
+        "Лот считается достаточно редким, если хотя бы один из его атрибутов "
+        "(model/backdrop/symbol) имеет rarity_per_mille ≤ заданного значения.\n\n"
+        f"Текущее: <b>{cur:g}‰</b>\n"
+        "Введи число от 0 до 1000 (рекомендую 1–5):",
+        reply_markup=back_kb("menu_notifs")
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "set_max_per_cycle")
+async def set_max_per_cycle_prompt(callback: CallbackQuery):
+    _pending_input[callback.from_user.id] = "max_per_cycle"
+    s = load_settings()
+    cur = int(s.get("max_alerts_per_cycle", 0) or 0)
+    await callback.message.edit_text(
+        "📊 <b>Лимит алертов на цикл (per market)</b>\n\n"
+        "Максимум сообщений за один цикл опроса каждого маркета.\n"
+        "Помогает не получить 50 сообщений после простоя.\n\n"
+        f"Текущее: <b>{cur if cur > 0 else 'без лимита'}</b>\n"
+        "Введи число (0 = без лимита, 5 = умеренно):",
+        reply_markup=back_kb("menu_notifs")
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "set_quiet_hours")
+async def set_quiet_hours_prompt(callback: CallbackQuery):
+    _pending_input[callback.from_user.id] = "quiet_hours"
+    s = load_settings()
+    qs = int(s.get("quiet_hours_start", 0) or 0)
+    qe = int(s.get("quiet_hours_end", 0) or 0)
+    cur = "выкл." if qs == qe else f"{qs:02d}:00–{qe:02d}:00 UTC"
+    await callback.message.edit_text(
+        "🌙 <b>Тихие часы (UTC)</b>\n\n"
+        "В это окно алерты не отправляются. Часовой пояс — UTC "
+        "(можно учитывать сдвиг от твоего локального).\n\n"
+        f"Текущее: <b>{cur}</b>\n"
+        "Введи две цифры через дефис: <code>22-7</code> "
+        "(значит тихо с 22:00 до 07:00 UTC), <code>0-0</code> = выключить.",
+        reply_markup=back_kb("menu_notifs")
+    )
+    await callback.answer()
 
 
 @dp.callback_query(F.data == "menu_rarity")
@@ -593,6 +736,39 @@ async def toggle_require_floor(callback: CallbackQuery):
     await callback.message.edit_reply_markup(reply_markup=price_menu_kb())
 
 
+@dp.message(F.text.regexp(r"^\d{1,2}\s*-\s*\d{1,2}$"))
+async def handle_range_input(message: types.Message):
+    """Обрабатывает ввод в формате `H1-H2` для тихих часов."""
+    if not _only_owner(message.from_user.id):
+        return
+    pending = _pending_input.get(message.from_user.id)
+    if pending != "quiet_hours":
+        return
+    _pending_input.pop(message.from_user.id, None)
+    try:
+        a, b = message.text.split("-")
+        h1, h2 = int(a.strip()), int(b.strip())
+    except ValueError:
+        await message.answer("⚠️ Неверный формат. Пример: <code>22-7</code> или <code>0-0</code>.",
+                             reply_markup=notifs_menu_kb())
+        return
+    if not (0 <= h1 <= 23) or not (0 <= h2 <= 23):
+        await message.answer("⚠️ Часы должны быть в диапазоне 0–23.",
+                             reply_markup=notifs_menu_kb())
+        return
+    s = load_settings()
+    s["quiet_hours_start"] = h1
+    s["quiet_hours_end"] = h2
+    save_settings(s)
+    if h1 == h2:
+        await message.answer("✅ Тихие часы выключены.", reply_markup=notifs_menu_kb())
+    else:
+        await message.answer(
+            f"✅ Тихие часы: <b>{h1:02d}:00–{h2:02d}:00 UTC</b>",
+            reply_markup=notifs_menu_kb()
+        )
+
+
 @dp.message(F.text.regexp(r"^\d+([\.,]\d+)?$"))
 async def handle_number_input(message: types.Message):
     if not _only_owner(message.from_user.id):
@@ -671,6 +847,29 @@ async def handle_number_input(message: types.Message):
         await message.answer(
             f"✅ Макс. rarity: <b>{label}</b>",
             reply_markup=filters_menu_kb()
+        )
+
+    elif pending == "max_per_cycle":
+        if value_f < 0 or value_f > 1000:
+            await message.answer("⚠️ Введи значение от 0 до 1000.", reply_markup=notifs_menu_kb())
+            return
+        s["max_alerts_per_cycle"] = int(value_f)
+        save_settings(s)
+        label = f"{s['max_alerts_per_cycle']}/цикл" if s["max_alerts_per_cycle"] > 0 else "без лимита"
+        await message.answer(
+            f"✅ Лимит алертов: <b>{label}</b>",
+            reply_markup=notifs_menu_kb()
+        )
+
+    elif pending == "recent_rare_pm":
+        if value_f < 0 or value_f > 1000:
+            await message.answer("⚠️ Введи значение от 0 до 1000.", reply_markup=notifs_menu_kb())
+            return
+        s["recent_rare_pm"] = round(value_f, 3)
+        save_settings(s)
+        await message.answer(
+            f"✅ Порог редкости: <b>≤ {s['recent_rare_pm']:g}‰</b>",
+            reply_markup=notifs_menu_kb()
         )
 
     else:

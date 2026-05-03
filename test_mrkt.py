@@ -522,15 +522,15 @@ try:
     test("Telegram NFT link: empty",
          build_telegram_nft_link("", "") == "")
 
-    # === Portals (актуальный share-формат: t.me/portals_market_bot/market?startapp=gift_{id}) ===
+    # === Portals (короткий verified-алиас @portals/market, формат gift_{UUID}) ===
     test("Portals link: gift_id",
          build_portals_gift_link(gift_id="dragon-001") ==
-         "https://t.me/portals_market_bot/market?startapp=gift_dragon-001")
+         "https://t.me/portals/market?startapp=gift_dragon-001")
     test("Portals link: slug fallback",
          build_portals_gift_link(slug="bling-binky-7") ==
-         "https://t.me/portals_market_bot/market?startapp=gift_bling-binky-7")
+         "https://t.me/portals/market?startapp=gift_bling-binky-7")
     test("Portals link: empty fallback",
-         build_portals_gift_link() == "https://t.me/portals_market_bot/market")
+         build_portals_gift_link() == "https://t.me/portals/market")
 
     # === GetGems (legacy) ===
     test("GetGems link: address",
@@ -549,7 +549,7 @@ try:
     btns_p = build_market_buttons("portals", "id123", slug="bling-binky-7",
                                    name="Bling Binky", number="7")
     test("Portals buttons: первый — Mini App",
-         btns_p[0]["url"] == "https://t.me/portals_market_bot/market?startapp=gift_id123")
+         btns_p[0]["url"] == "https://t.me/portals/market?startapp=gift_id123")
     test("Portals buttons: второй — t.me/nft",
          len(btns_p) >= 2 and btns_p[1]["url"] == "https://t.me/nft/BlingBinky-7")
 

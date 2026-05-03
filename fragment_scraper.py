@@ -197,7 +197,13 @@ async def start_fragment_monitor():
                     )
 
                 # Обработка найденных лотов
+                from settings_store import load_settings
+                _s = load_settings()
+                max_per_cycle = int(_s.get("max_alerts_per_cycle", 0) or 0)
+
                 new_count = 0
+                alerted_count = 0
+                skipped_by_limit = 0
                 for gift in gifts:
                     uid = f"fragment_{gift['id']}"
 
@@ -209,6 +215,10 @@ async def start_fragment_monitor():
 
                     add_gift(uid, gift["name"], gift["price"], "fragment")
                     new_count += 1
+
+                    if max_per_cycle > 0 and alerted_count >= max_per_cycle:
+                        skipped_by_limit += 1
+                        continue
 
                     stars_info = ""
                     if gift.get("stars_price"):
@@ -223,11 +233,18 @@ async def start_fragment_monitor():
                         from notifier import send_gift_alert, bot
                         from config import USER_ID
                         await send_gift_alert(bot, USER_ID, gift, market="fragment")
+                        alerted_count += 1
                     except Exception as e:
                         logger.exception(f"Fragment notify error: {e}")
 
                 if new_count:
-                    logger.info(f"Fragment: новых выгодных лотов: {new_count}")
+                    msg = (
+                        f"Fragment: новых выгодных лотов: {new_count} "
+                        f"(отправлено {alerted_count})"
+                    )
+                    if skipped_by_limit:
+                        msg += f", пропущено {skipped_by_limit} (лимит {max_per_cycle}/цикл)"
+                    logger.info(msg)
 
             except Exception as e:
                 logger.exception(f"Fragment цикл: {e}")

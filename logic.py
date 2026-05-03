@@ -819,7 +819,7 @@ def parse_portals_search(json_data: dict) -> list:
                 "rarity": rarity,
                 "currency": "TON",
                 "image_url": _extract_str(item, "photo_url", "image_url"),
-                "url": f"https://t.me/portals_market_bot/market?startapp=gift_{gift_id}",
+                "url": f"https://t.me/portals/market?startapp=gift_{gift_id}",
                 "market": "portals",
             })
 
@@ -924,6 +924,23 @@ DEFAULT_S: dict = {
     "number_filters": [],          # ['low','sub100','round','repeat','lucky',...] OR-логика
     "max_rarity_pm": 0,            # Если >0 — атрибут с rarity_per_mille ≤ этого считается редким
     "notifications_on": True,
+
+    # ── Уведомления по маркетам ────────────────────────────────────────────
+    "mrkt_alerts_on": True,
+    "fragment_alerts_on": True,
+    "portals_alerts_on": True,
+
+    # ── Тихие часы (UTC). 0-0 = выключено. Пример: 22-7 = с 22:00 до 07:00 UTC ─
+    "quiet_hours_start": 0,
+    "quiet_hours_end":   0,
+
+    # ── Ограничение алертов в одном цикле опроса (per market). 0 = без лимита.
+    "max_alerts_per_cycle": 0,
+
+    # ── Режим "редкие свежие листинги" — алертит даже если price > floor,
+    #    если у лота есть редкий атрибут (≤ recent_rare_pm) и он впервые виден.
+    "recent_rare_mode": False,
+    "recent_rare_pm":   5.0,
 }
 
 
@@ -965,6 +982,29 @@ def apply_floors(gifts: list[dict], key: str = "name") -> list[dict]:
     return gifts
 
 
+def _in_quiet_hours(s: dict) -> bool:
+    """
+    Возвращает True, если сейчас (UTC) попадает в окно тихих часов.
+    Окно [start, end). Если start == end → выключено. Поддерживает переход
+    через полночь, например start=22, end=7 → тихо с 22:00 до 07:00 UTC.
+    """
+    try:
+        start = int(s.get("quiet_hours_start", 0) or 0)
+        end = int(s.get("quiet_hours_end", 0) or 0)
+    except (TypeError, ValueError):
+        return False
+    if start == end:
+        return False
+    if not (0 <= start <= 23) or not (0 <= end <= 23):
+        return False
+    from datetime import datetime, timezone
+    h = datetime.now(timezone.utc).hour
+    if start < end:
+        return start <= h < end
+    # переход через полночь
+    return h >= start or h < end
+
+
 def is_profitable(gift_data: dict, market: str = "") -> bool:
     """
     Проверяет, выгодный ли лот. Все цены в TON.
@@ -990,10 +1030,27 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
 
     # 1. Маркет активен?
     filter_markets = s.get("filter_markets", [])
+    market_norm = normalize_market(market) if market else ""
     if filter_markets and market:
-        market_norm = normalize_market(market)
         if not market.startswith("tg:") and market_norm not in filter_markets:
             return False
+
+    # 1a. Per-market алерты
+    per_market_key = {
+        "mrkt": "mrkt_alerts_on",
+        "fragment": "fragment_alerts_on",
+        "portals": "portals_alerts_on",
+    }.get(market_norm)
+    if per_market_key and not bool(s.get(per_market_key, True)):
+        return False
+
+    # 1b. Глобальные уведомления
+    if not bool(s.get("notifications_on", True)):
+        return False
+
+    # 1c. Тихие часы (UTC)
+    if _in_quiet_hours(s):
+        return False
 
     # 2. Цена валидна?
     price = gift_data.get("price")
@@ -1015,14 +1072,27 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     require_floor = bool(s.get("require_floor", DEFAULT_S["require_floor"]))
     floor_tolerance_pct = float(s.get("floor_tolerance_pct", DEFAULT_S["floor_tolerance_pct"]))
 
-    if floor_valid:
-        max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
-        # +0.000001 запас на ошибки округления
-        if price > max_allowed + 1e-6:
+    # Режим "редкие свежие листинги": если активен И у лота есть редкий
+    # атрибут — мы пропускаем floor-проверку (это альтернативный путь к alert).
+    recent_rare_mode = bool(s.get("recent_rare_mode", False))
+    recent_rare_pm = float(s.get("recent_rare_pm", 5.0))
+    is_rare_listing = False
+    if recent_rare_mode and recent_rare_pm > 0:
+        rar = gift_data.get("rarities_pm") or {}
+        for v in rar.values():
+            if isinstance(v, (int, float)) and 0 < v <= recent_rare_pm:
+                is_rare_listing = True
+                break
+
+    if not is_rare_listing:
+        if floor_valid:
+            max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
+            # +0.000001 запас на ошибки округления
+            if price > max_allowed + 1e-6:
+                return False
+        elif require_floor:
+            # Без known floor мы не можем гарантировать выгодность
             return False
-    elif require_floor:
-        # Без known floor мы не можем гарантировать выгодность
-        return False
 
     # 4. Минимальная скидка от floor (если требуется)
     min_discount = int(s.get("min_discount_pct", 0))

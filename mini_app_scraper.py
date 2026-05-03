@@ -353,8 +353,11 @@ async def process_listings(market: str, listings: list):
     if not s.get("notifications_on", True):
         return
 
+    max_per_cycle = int(s.get("max_alerts_per_cycle", 0) or 0)
+
     new_count = 0
     alerted_count = 0
+    skipped_by_limit = 0
 
     for item in listings:
         uid = f"{market}_{item['id']}"
@@ -372,12 +375,19 @@ async def process_listings(market: str, listings: list):
         if not is_profitable(item, market=market):
             continue
 
+        # Лимит алертов на цикл (per-market)
+        if max_per_cycle > 0 and alerted_count >= max_per_cycle:
+            skipped_by_limit += 1
+            continue
+
         price_str = format_price(item["price"], item.get("currency", "TON"))
+        floor = item.get("floor_price")
+        discount_str = ""
+        if floor and floor > item["price"]:
+            discount_str = f" (скидка {round((floor - item['price']) / floor * 100, 1)}% от Floor)"
         logger.info(
-            f"ALERT [{market.upper()}]: {item['name']} #{item.get('number', '?')} "
-            f"— {price_str}"
-            + (f" (скидка {round((item['floor_price']-item['price'])/item['floor_price']*100, 1)}% от Floor)"
-               if item.get("floor_price") and item["floor_price"] > item["price"] else "")
+            f"ALERT [{market.upper()}]: {item['name']} #{item.get('number', '?')} — "
+            f"{price_str}{discount_str}"
         )
 
         await send_gift_alert(bot, USER_ID, item, market=market)
@@ -385,7 +395,10 @@ async def process_listings(market: str, listings: list):
         await asyncio.sleep(0.3)  # Антиспам
 
     if new_count:
-        logger.info(f"{market.upper()}: {new_count} новых лотов, {alerted_count} алертов отправлено")
+        msg = f"{market.upper()}: {new_count} новых лотов, {alerted_count} алертов отправлено"
+        if skipped_by_limit:
+            msg += f" (пропущено {skipped_by_limit} из-за лимита {max_per_cycle}/цикл)"
+        logger.info(msg)
 
 
 # ─── Portals Market (portal-market.com) ──────────────────────────────────────

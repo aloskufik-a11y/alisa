@@ -23,6 +23,23 @@ DEFAULT_SETTINGS: dict = {
     "number_filters": [],               # ['low','sub100','round','repeat','lucky','sequential','palindrome','pretty100']
     "max_rarity_pm": 0,                 # 0 = без фильтра, иначе хотя бы один атрибут ≤ этого pm
     "notifications_on": True,
+
+    # Per-market on/off
+    "mrkt_alerts_on": True,
+    "fragment_alerts_on": True,
+    "portals_alerts_on": True,
+
+    # Тихие часы (UTC). 0-0 = выключено. Пример: 22-7 = тихо с 22:00 до 07:00 UTC.
+    "quiet_hours_start": 0,
+    "quiet_hours_end":   0,
+
+    # Лимит алертов в одном цикле опроса. 0 = без лимита.
+    "max_alerts_per_cycle": 0,
+
+    # Режим "редкие свежие листинги" — алертит даже если price > floor,
+    # когда у лота есть атрибут с per-mille ≤ recent_rare_pm.
+    "recent_rare_mode": False,
+    "recent_rare_pm":   5.0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)
