@@ -86,6 +86,21 @@ async def main():
 
     asyncio.create_task(periodic_cleanup(), name="db_cleanup")
 
+    # 8b. Если настроен публичный backend — периодически шлём snapshot настроек
+    async def periodic_settings_push():
+        from feed_store import push_settings
+        from settings_store import load_settings
+        if not os.getenv("WEBAPP_BACKEND_URL"):
+            return
+        while not _shutdown_event.is_set():
+            try:
+                await push_settings(load_settings())
+            except Exception:
+                logger.exception("settings push failed")
+            await asyncio.sleep(60)
+
+    asyncio.create_task(periodic_settings_push(), name="settings_push")
+
     # 8a. Web App HTTP сервер (если задан WEBAPP_PORT — поднимаем)
     webapp_runner = None
     try:
