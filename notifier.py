@@ -2,6 +2,7 @@
 Aiogram Bot — уведомления и управление настройками.
 ВСЕ ЦЕНЫ В TON. Stars показываются только как справочная информация.
 """
+import os
 import random
 import asyncio
 import logging
@@ -56,7 +57,13 @@ _start_time: datetime = datetime.now()
 def main_menu_kb() -> InlineKeyboardMarkup:
     s = load_settings()
     notif_icon = "🔔" if s.get("notifications_on", True) else "🔕"
-    mini_app_url = s.get("mini_app_url") or ""
+    # URL берётся из настроек или из переменной окружения как fallback,
+    # чтобы кнопка не пропадала, если settings.json случайно очистится.
+    mini_app_url = (
+        (s.get("mini_app_url") or "").strip()
+        or os.getenv("MINI_APP_URL", "").strip()
+        or os.getenv("WEBAPP_BACKEND_URL", "").strip()
+    )
     rows = [
         [InlineKeyboardButton(text="💎 Цена и Floor",         callback_data="menu_price")],
         [InlineKeyboardButton(text="🎯 Фильтры подарков",     callback_data="menu_filters")],
