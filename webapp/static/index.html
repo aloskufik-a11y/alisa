@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Gift Monitor — лента выгодных лотов</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #14171c);
+    --fg: var(--tg-theme-text-color, #f5f5f5);
+    --fg-dim: var(--tg-theme-hint-color, #8a8f97);
+    --card: var(--tg-theme-secondary-bg-color, #1d2129);
+    --accent: var(--tg-theme-button-color, #4ea1ff);
+    --accent-fg: var(--tg-theme-button-text-color, #ffffff);
+    --good: #34c77c;
+    --warn: #f7b955;
+    --bad: #ff5c5c;
+  }
+
+  * { box-sizing: border-box; }
+  html,body { margin:0; padding:0; background:var(--bg); color:var(--fg);
+              font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+              font-size:15px; }
+  body { padding-bottom: 80px; }
+
+  header { position:sticky; top:0; z-index:10; background:var(--bg);
+           border-bottom:1px solid rgba(255,255,255,.06);
+           padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+  h1 { margin:0; font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .subtitle { font-size:12px; color:var(--fg-dim); }
+  .filters { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .pill { background:var(--card); border:1px solid transparent; border-radius:999px;
+          padding:6px 10px; font-size:13px; cursor:pointer; user-select:none;
+          color:var(--fg-dim); transition:all .15s; }
+  .pill.active { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); }
+  .pill:active { transform:scale(.97); }
+  .row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+  .row label { font-size:12px; color:var(--fg-dim); }
+  input[type="number"] { background:var(--card); color:var(--fg); border:none;
+                         border-radius:8px; padding:6px 8px; width:78px; font-size:13px; }
+  input[type="text"] { background:var(--card); color:var(--fg); border:none;
+                       border-radius:8px; padding:6px 10px; font-size:13px; flex:1; min-width:120px; }
+
+  main { padding:10px 12px 0; display:flex; flex-direction:column; gap:8px; }
+  .empty { text-align:center; padding:60px 16px; color:var(--fg-dim); }
+  .empty .e-emoji { font-size:42px; margin-bottom:8px; }
+
+  .card { background:var(--card); border-radius:14px; padding:12px;
+          display:flex; gap:10px; align-items:flex-start;
+          border:1px solid transparent; }
+  .card.disc-high { border-color:rgba(52,199,124,.4); }
+  .thumb { width:64px; height:64px; border-radius:10px; background:#222;
+           background-size:cover; background-position:center; flex:none; }
+  .info { flex:1; min-width:0; }
+  .title { font-size:15px; font-weight:600; line-height:1.2;
+           overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .num { color:var(--fg-dim); font-weight:400; }
+  .meta { font-size:12px; color:var(--fg-dim); margin-top:2px;
+          overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .price-row { display:flex; gap:8px; align-items:baseline; margin-top:6px; flex-wrap:wrap; }
+  .price { font-size:16px; font-weight:600; color:var(--fg); }
+  .floor { font-size:12px; color:var(--fg-dim); }
+  .badge { background:rgba(255,255,255,.08); color:var(--fg);
+           padding:2px 8px; border-radius:999px; font-size:11px; }
+  .badge.good { background:rgba(52,199,124,.15); color:var(--good); }
+  .badge.warn { background:rgba(247,185,85,.15); color:var(--warn); }
+  .actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .btn { background:var(--accent); color:var(--accent-fg);
+         padding:6px 12px; border-radius:8px; font-size:13px;
+         text-decoration:none; font-weight:500; }
+  .btn.secondary { background:rgba(255,255,255,.06); color:var(--fg); }
+
+  footer { position:fixed; bottom:0; left:0; right:0; padding:10px 14px;
+           background:var(--bg); border-top:1px solid rgba(255,255,255,.06);
+           font-size:12px; color:var(--fg-dim); display:flex; justify-content:space-between; }
+
+  .market-mrkt { color:#a06bff; }
+  .market-portals { color:#34c77c; }
+  .market-fragment { color:#4ea1ff; }
+</style>
+</head>
+<body>
+<header>
+  <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+    <div>
+      <h1>🎁 Лента выгодных</h1>
+      <div class="subtitle" id="subtitle">обновляется каждые 20 сек</div>
+    </div>
+    <button class="pill" id="refresh-btn">↻</button>
+  </div>
+  <div class="filters">
+    <span class="pill active" data-market="all">Все</span>
+    <span class="pill" data-market="mrkt">🟣 MRKT</span>
+    <span class="pill" data-market="portals">🟢 Portals</span>
+    <span class="pill" data-market="fragment">🔵 Fragment</span>
+  </div>
+  <div class="row">
+    <label>min ≥% от Floor:</label>
+    <input type="number" id="min-disc" min="0" max="99" value="0" />
+    <label>поиск:</label>
+    <input type="text" id="search" placeholder="Vice Cream, Plush…" />
+  </div>
+  <div class="filters">
+    <span class="pill" data-flag="monochrome">🎨 Монохром</span>
+    <span class="pill" data-flag="lucky">🍀 Lucky</span>
+    <span class="pill" data-flag="palindrome">🔄 Палиндром</span>
+    <span class="pill" data-flag="round">⭕ Круглые</span>
+    <span class="pill" data-flag="repeat">🔁 Повтор</span>
+    <span class="pill" data-flag="sub100">🥇 #&lt;100</span>
+    <span class="pill" data-flag="rare">💠 Редкий ≤5‰</span>
+  </div>
+</header>
+
+<main id="feed">
+  <div class="empty"><div class="e-emoji">⏳</div>Загружаем ленту…</div>
+</main>
+
+<footer>
+  <span id="count-line">—</span>
+  <span id="ts-line">—</span>
+</footer>
+
+<script>
+  const tg = window.Telegram?.WebApp;
+  if (tg) { tg.expand(); tg.ready(); tg.MainButton?.hide(); }
+
+  const STATE = {
+    market: "all",
+    minDisc: 0,
+    search: "",
+    flags: new Set(),
+    items: [],
+    lastFetch: 0,
+  };
+
+  const fmt = (n) => (n == null ? "—" : (Math.round(n * 100) / 100).toFixed(2));
+
+  function categories(num) {
+    const n = parseInt(num, 10);
+    if (!Number.isFinite(n) || n <= 0) return new Set();
+    const s = String(n);
+    const cats = new Set();
+    if (n <= 999) cats.add("low");
+    if (n <= 99) cats.add("sub100");
+    if ([10,100,1000,10000,100000,1000000].includes(n)) cats.add("round");
+    if (n >= 100 && n % 100 === 0) cats.add("pretty100");
+    if (s.length >= 2 && new Set(s).size === 1) cats.add("repeat");
+    if (s.split("").every(c => c === "7")) cats.add("lucky");
+    if (s.length >= 3) {
+      const asc = s.split("").every((c, i) => i === 0 || +c === +s[i-1]+1);
+      const desc = s.split("").every((c, i) => i === 0 || +c === +s[i-1]-1);
+      if (asc || desc) cats.add("sequential");
+    }
+    if (s.length >= 3 && s === s.split("").reverse().join("") && new Set(s).size > 1) {
+      cats.add("palindrome");
+    }
+    return cats;
+  }
+
+  function rgbToHsl(rgb) {
+    const r = ((rgb >> 16) & 255) / 255;
+    const g = ((rgb >> 8) & 255) / 255;
+    const b = (rgb & 255) / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    if (max === min) return [0, 0, l];
+    const d = max - min;
+    const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    let h;
+    if (max === r) h = ((g - b) / d + (g < b ? 6 : 0));
+    else if (max === g) h = ((b - r) / d + 2);
+    else h = ((r - g) / d + 4);
+    return [h * 60, s, l];
+  }
+
+  function isMonochrome(colors) {
+    if (!colors || colors.length < 2) return false;
+    const hsl = colors.map(rgbToHsl);
+    if (hsl.every(([_, s]) => s < 0.15)) return true;
+    const hues = hsl.filter(([_, s]) => s >= 0.15).map(([h]) => h);
+    if (hues.length < 2) return false;
+    const dist = (a, b) => Math.min(Math.abs(a - b), 360 - Math.abs(a - b));
+    const base = hues[0];
+    return hues.every(h => dist(h, base) <= 25);
+  }
+
+  function isRare(rar, threshold = 5) {
+    if (!rar) return false;
+    return Object.values(rar).some(v => typeof v === "number" && v > 0 && v <= threshold);
+  }
+
+  function pillEmoji(cat) {
+    return ({lucky:"🍀", repeat:"🔁", round:"⭕", sub100:"🥇", low:"💯",
+             pretty100:"🔢", sequential:"↗️", palindrome:"🔄"})[cat] || "";
+  }
+
+  function renderCard(it) {
+    const f = it.floor_price, p = it.price;
+    const hasFloor = typeof f === "number" && f > 0;
+    let pctDisc = null;
+    if (hasFloor && typeof p === "number" && p > 0 && f > p) pctDisc = (f - p) / f * 100;
+
+    const cats = categories(it.number);
+    const mono = isMonochrome(it.colors);
+    const rare = isRare(it.rarities_pm, 5);
+
+    const badges = [];
+    for (const c of cats) {
+      const e = pillEmoji(c);
+      if (e) badges.push(`<span class="badge">${e}</span>`);
+    }
+    if (mono) badges.push(`<span class="badge">🎨</span>`);
+    if (rare) badges.push(`<span class="badge good">💠 редкий</span>`);
+    if (pctDisc != null && pctDisc >= 5) badges.push(`<span class="badge good">−${pctDisc.toFixed(1)}%</span>`);
+
+    const meta = [it.model_name, it.backdrop_name, it.symbol_name].filter(Boolean).join(" · ");
+    const cardClass = (pctDisc != null && pctDisc >= 5) ? "card disc-high" : "card";
+    const thumb = it.image_url ? `style="background-image:url('${it.image_url}')"` : "";
+    const numStr = it.number ? `<span class="num">#${it.number}</span>` : "";
+    const url = it.url || "";
+
+    let priceLine = `<span class="price">${fmt(p)} 💎</span>`;
+    if (hasFloor) {
+      if (pctDisc != null) priceLine += ` <span class="floor">Floor: ${fmt(f)}</span>`;
+      else if (Math.abs(p - f) < 0.001) priceLine += ` <span class="floor">🎯 ровно по Floor</span>`;
+      else priceLine += ` <span class="floor">Floor: ${fmt(f)}</span>`;
+    }
+
+    return `
+      <article class="${cardClass}">
+        <div class="thumb" ${thumb}></div>
+        <div class="info">
+          <div class="title">
+            <span class="market-${it.market}">${it.market.toUpperCase()}</span> ·
+            ${escapeHtml(it.name || "")} ${numStr}
+          </div>
+          ${meta ? `<div class="meta">${escapeHtml(meta)}</div>` : ""}
+          <div class="price-row">${priceLine}</div>
+          ${badges.length ? `<div class="row" style="margin-top:6px;">${badges.join(" ")}</div>` : ""}
+          <div class="actions">
+            ${url ? `<a class="btn" href="${url}" target="_blank">Открыть</a>` : ""}
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function escapeHtml(s) {
+    return String(s || "").replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    })[c]);
+  }
+
+  function applyFilters(items) {
+    const q = STATE.search.trim().toLowerCase();
+    return items.filter(it => {
+      if (STATE.market !== "all" && it.market !== STATE.market) return false;
+
+      if (STATE.minDisc > 0) {
+        const f = it.floor_price, p = it.price;
+        if (!(typeof f === "number" && f > 0 && typeof p === "number" && p > 0)) return false;
+        const disc = (f - p) / f * 100;
+        if (disc < STATE.minDisc) return false;
+      }
+
+      if (q) {
+        const hay = [it.name, it.number, it.model_name, it.backdrop_name, it.symbol_name]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+
+      const cats = categories(it.number);
+      const mono = isMonochrome(it.colors);
+      const rare = isRare(it.rarities_pm, 5);
+
+      for (const flag of STATE.flags) {
+        if (flag === "monochrome" && !mono) return false;
+        if (flag === "rare" && !rare) return false;
+        if (["lucky","palindrome","round","repeat","sub100","sequential","low","pretty100"].includes(flag)) {
+          if (!cats.has(flag)) return false;
+        }
+      }
+      return true;
+    });
+  }
+
+  function render() {
+    const filtered = applyFilters(STATE.items);
+    const main = document.getElementById("feed");
+    if (!filtered.length) {
+      const total = STATE.items.length;
+      main.innerHTML = total
+        ? `<div class="empty"><div class="e-emoji">🔍</div>По текущим фильтрам ничего нет</div>`
+        : `<div class="empty"><div class="e-emoji">📡</div>Лента пуста — бот ещё не ловил алертов или их перестало быть</div>`;
+    } else {
+      main.innerHTML = filtered.map(renderCard).join("");
+    }
+    document.getElementById("count-line").textContent =
+      `показано ${filtered.length} / ${STATE.items.length}`;
+    if (STATE.lastFetch) {
+      const sec = Math.round((Date.now() - STATE.lastFetch) / 1000);
+      document.getElementById("ts-line").textContent = `обновлено ${sec} сек назад`;
+    }
+  }
+
+  // Сначала пробуем /api/feed (когда страницу обслуживает наш бот),
+  // если 401/sieved/network/таймаут → fallback на публичный Portals API
+  async function fetchFeed() {
+    try {
+      const r = await fetch("/api/feed?limit=300", { signal: AbortSignal.timeout(2500) });
+      if (r.ok) {
+        const data = await r.json();
+        STATE.items = data.items || [];
+        STATE.lastFetch = Date.now();
+        STATE.source = "bot";
+        document.getElementById("subtitle").textContent =
+          `источник: бот · ${STATE.items.length} последних алертов`;
+        render();
+        return;
+      }
+    } catch (e) { /* fallthrough → portals */ }
+
+    // Fallback: Portals public API
+    try {
+      const r = await fetch("https://portal-market.com/api/nfts/search?limit=200&offset=0");
+      if (!r.ok) throw new Error("portals " + r.status);
+      const data = await r.json();
+      STATE.items = (data.results || []).map(p => {
+        const attrs = p.attributes || [];
+        const find = t => (attrs.find(a => a.type === t) || {});
+        const m = find("model"), b = find("backdrop"), sym = find("symbol");
+        return {
+          ts: Date.now() / 1000,
+          market: "portals",
+          id: p.id,
+          name: p.name,
+          number: p.external_collection_number,
+          slug: p.tg_id,
+          price: parseFloat(p.price),
+          floor_price: parseFloat(p.floor_price),
+          rarity: null,
+          model_name: m.value, backdrop_name: b.value, symbol_name: sym.value,
+          rarities_pm: {
+            model: m.rarity_per_mille,
+            backdrop: b.rarity_per_mille,
+            symbol: sym.rarity_per_mille,
+          },
+          colors: [],
+          image_url: p.photo_url,
+          url: `https://t.me/portals/market?startapp=gift_${p.id}`,
+        };
+      });
+      STATE.lastFetch = Date.now();
+      STATE.source = "portals";
+      document.getElementById("subtitle").textContent =
+        `источник: Portals API напрямую · ${STATE.items.length} лотов`;
+      render();
+    } catch (e) {
+      console.error("Portals fallback failed", e);
+      document.getElementById("subtitle").textContent =
+        "не удалось загрузить ленту — проверь интернет";
+    }
+  }
+
+  // Wire up controls
+  document.querySelectorAll("[data-market]").forEach(el => {
+    el.addEventListener("click", () => {
+      document.querySelectorAll("[data-market]").forEach(b => b.classList.remove("active"));
+      el.classList.add("active");
+      STATE.market = el.dataset.market;
+      render();
+    });
+  });
+  document.querySelectorAll("[data-flag]").forEach(el => {
+    el.addEventListener("click", () => {
+      const f = el.dataset.flag;
+      if (STATE.flags.has(f)) { STATE.flags.delete(f); el.classList.remove("active"); }
+      else { STATE.flags.add(f); el.classList.add("active"); }
+      render();
+    });
+  });
+  document.getElementById("min-disc").addEventListener("input", e => {
+    STATE.minDisc = parseFloat(e.target.value) || 0;
+    render();
+  });
+  document.getElementById("search").addEventListener("input", e => {
+    STATE.search = e.target.value;
+    render();
+  });
+  document.getElementById("refresh-btn").addEventListener("click", fetchFeed);
+
+  // Initial fetch + auto-refresh
+  fetchFeed();
+  setInterval(fetchFeed, 20_000);
+  setInterval(() => {
+    if (STATE.lastFetch) {
+      const sec = Math.round((Date.now() - STATE.lastFetch) / 1000);
+      document.getElementById("ts-line").textContent = `обновлено ${sec} сек назад`;
+    }
+  }, 1000);
+</script>
+</body>
+</html>

@@ -266,6 +266,34 @@ async def cmd_status(message: types.Message):
     await _send_status(message.answer)
 
 
+@dp.message(Command("setwebapp"))
+async def cmd_setwebapp(message: types.Message):
+    """Привязать публичный HTTPS-URL Mini App. Без аргумента — отвязывает."""
+    if not _only_owner(message.from_user.id):
+        return
+    parts = (message.text or "").strip().split(maxsplit=1)
+    s = load_settings()
+    if len(parts) < 2 or not parts[1].strip():
+        s["mini_app_url"] = ""
+        save_settings(s)
+        await message.answer(
+            "✅ Mini App URL очищен. Кнопка скрыта в меню.",
+            reply_markup=main_menu_kb()
+        )
+        return
+    url = parts[1].strip()
+    if not url.startswith("https://"):
+        await message.answer("⚠️ URL должен начинаться с <b>https://</b>.")
+        return
+    s["mini_app_url"] = url
+    save_settings(s)
+    await message.answer(
+        f"✅ Mini App URL сохранён:\n<code>{url}</code>\n\n"
+        f"Открой /settings — внизу появится кнопка «🪄 Открыть Web App».",
+        reply_markup=main_menu_kb()
+    )
+
+
 @dp.message(Command("rate"))
 async def cmd_rate(message: types.Message):
     """Показывает текущий курс TON/Stars."""

@@ -391,6 +391,11 @@ async def process_listings(market: str, listings: list):
         )
 
         await send_gift_alert(bot, USER_ID, item, market=market)
+        try:
+            from feed_store import push as feed_push
+            feed_push(item, market)
+        except Exception:
+            pass
         alerted_count += 1
         await asyncio.sleep(0.3)  # Антиспам
 

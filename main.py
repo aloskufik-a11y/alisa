@@ -86,6 +86,22 @@ async def main():
 
     asyncio.create_task(periodic_cleanup(), name="db_cleanup")
 
+    # 8a. Web App HTTP сервер (если задан WEBAPP_PORT — поднимаем)
+    webapp_runner = None
+    try:
+        webapp_port = int(os.getenv("WEBAPP_PORT", "0") or 0)
+    except ValueError:
+        webapp_port = 0
+    if webapp_port > 0:
+        try:
+            import webapp_server
+            webapp_runner = await webapp_server.run(
+                host=os.getenv("WEBAPP_HOST", "0.0.0.0"),
+                port=webapp_port,
+            )
+        except Exception as e:
+            logger.exception(f"Не удалось запустить Web App сервер: {e}")
+
     # 9. Запускаем всё вместе
     try:
         await asyncio.gather(
@@ -97,6 +113,11 @@ async def main():
         logger.info("Задачи отменены, завершаем...")
     finally:
         logger.info("Закрываем соединения...")
+        if webapp_runner is not None:
+            try:
+                await webapp_runner.cleanup()
+            except Exception:
+                pass
         await client.disconnect()
         logger.info("Бот остановлен. До свидания! 👋")
 

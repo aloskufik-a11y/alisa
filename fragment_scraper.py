@@ -234,6 +234,11 @@ async def start_fragment_monitor():
                         from config import USER_ID
                         await send_gift_alert(bot, USER_ID, gift, market="fragment")
                         alerted_count += 1
+                        try:
+                            from feed_store import push as feed_push
+                            feed_push(gift, "fragment")
+                        except Exception:
+                            pass
                     except Exception as e:
                         logger.exception(f"Fragment notify error: {e}")
 
