@@ -40,6 +40,10 @@ DEFAULT_SETTINGS: dict = {
     # когда у лота есть атрибут с per-mille ≤ recent_rare_pm.
     "recent_rare_mode": False,
     "recent_rare_pm":   5.0,
+
+    # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
+    # Пустая строка = кнопка скрыта.
+    "mini_app_url": "",
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

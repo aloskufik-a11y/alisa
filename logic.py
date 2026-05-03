@@ -941,6 +941,9 @@ DEFAULT_S: dict = {
     #    если у лота есть редкий атрибут (≤ recent_rare_pm) и он впервые виден.
     "recent_rare_mode": False,
     "recent_rare_pm":   5.0,
+
+    # Mini App URL (для кнопки в /settings)
+    "mini_app_url": "",
 }
 
 
