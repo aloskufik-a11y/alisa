@@ -195,6 +195,12 @@ async def start_fragment_monitor():
                         f"Fragment: получено {len(gifts)} лотов, "
                         f"посчитан floor для {len(floors_summary)}+ коллекций"
                     )
+                    # Полный snapshot для backend (Mini App)
+                    try:
+                        from feed_store import push_batch
+                        asyncio.create_task(push_batch(gifts, "fragment"))
+                    except Exception:
+                        pass
 
                 # Обработка найденных лотов
                 from settings_store import load_settings

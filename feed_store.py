@@ -51,9 +51,33 @@ async def _post_to_backend(payload: dict) -> None:
 
 
 def _build_payload(gift: dict, market: str) -> dict:
+    market_norm = (market or "").lower()
+    url = gift.get("url")
+    if not url:
+        # Дополним URL из url_builder, если scraper его не записал
+        try:
+            from url_builder import (
+                build_mrkt_web_link,
+                build_portals_gift_link,
+                build_fragment_gift_link,
+            )
+            gift_id = str(gift.get("id") or "")
+            slug = str(gift.get("slug") or "")
+            name = str(gift.get("name") or "")
+            number = str(gift.get("number") or "")
+            if market_norm == "mrkt":
+                url = build_mrkt_web_link(slug=slug, gift_id=gift_id)
+            elif market_norm == "portals":
+                url = build_portals_gift_link(slug=slug, gift_id=gift_id)
+            elif market_norm == "fragment":
+                url = build_fragment_gift_link(
+                    gift_id=gift_id, slug=slug, name=name, number=number,
+                )
+        except Exception:
+            url = None
     return {
         "ts":           int(time.time()),
-        "market":       (market or "").lower(),
+        "market":       market_norm,
         "id":           gift.get("id"),
         "name":         gift.get("name"),
         "number":       gift.get("number"),
@@ -67,7 +91,7 @@ def _build_payload(gift: dict, market: str) -> dict:
         "rarities_pm":  gift.get("rarities_pm") or {},
         "colors":       gift.get("colors") or [],
         "image_url":    gift.get("image_url"),
-        "url":          gift.get("url"),
+        "url":          url,
     }
 
 
@@ -92,6 +116,60 @@ async def push_settings(settings: dict) -> None:
     if not _BACKEND_URL or not isinstance(settings, dict):
         return
     await _post_to_backend({"settings": settings})
+
+
+async def push_batch(items: list, market: str, mode: str = "replace") -> None:
+    """
+    Отправляет полный batch лотов одного маркета на backend.
+
+    mode='replace' — backend заменит свой кэш этого маркета этим списком.
+    mode='append'  — backend дополнит существующий кэш (но дедуп по id).
+
+    Шлём 4 раза подряд, чтобы Fly.io load balancer разнёс batch по всем
+    активным machines (иначе одна реплика получит, другие — нет).
+    """
+    if not _BACKEND_URL or not isinstance(items, list):
+        return
+    payloads = [_build_payload(g, market) for g in items if isinstance(g, dict)]
+    body = {
+        "batch": payloads,
+        "market": (market or "").lower(),
+        "mode": mode,
+    }
+    # Один POST — backend сам разнесёт batch на все peer-machines через
+    # Fly.io internal DNS (`<app>.internal`).
+    await _post_to_backend(body)
+
+
+async def pull_pending_settings(since_ts: int = 0) -> dict | None:
+    """
+    Тянет с backend настройки, которые пользователь поменял в Mini App.
+    Возвращает dict {settings, ts} или None, если нет изменений с since_ts.
+    """
+    if not _BACKEND_URL:
+        return None
+    global _session
+    try:
+        import aiohttp
+        if _session is None or _session.closed:
+            _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8))
+        params = {"since": str(int(since_ts or 0))}
+        headers = {}
+        if _BACKEND_KEY:
+            headers["X-API-Key"] = _BACKEND_KEY
+        async with _session.get(
+            f"{_BACKEND_URL}/api/pending_settings",
+            params=params, headers=headers,
+        ) as r:
+            if r.status != 200:
+                return None
+            data = await r.json()
+            if not data.get("ok") or not data.get("changed"):
+                return None
+            return data
+    except Exception as e:
+        logger.debug(f"Backend pull settings failed: {e}")
+        return None
 
 
 def snapshot(limit: int = 200) -> list[dict]:

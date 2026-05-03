@@ -316,6 +316,12 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                         f"всего с floor: "
                         f"{sum(1 for g in all_listings if g.get('floor_price'))})"
                     )
+                    # Полный snapshot для backend (Mini App)
+                    try:
+                        from feed_store import push_batch
+                        asyncio.create_task(push_batch(all_listings, "mrkt"))
+                    except Exception:
+                        pass
                     await process_listings("mrkt", all_listings)
 
             except asyncio.TimeoutError:
@@ -539,6 +545,12 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                         f"floor известен: {sum(1 for g in unique if g.get('floor_price'))})"
                     )
                     backoff = 10.0
+                    # Полный snapshot для backend (Mini App)
+                    try:
+                        from feed_store import push_batch
+                        asyncio.create_task(push_batch(unique, "portals"))
+                    except Exception:
+                        pass
                     await process_listings("portals", unique)
 
             except asyncio.TimeoutError:

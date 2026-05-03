@@ -101,6 +101,36 @@ async def main():
 
     asyncio.create_task(periodic_settings_push(), name="settings_push")
 
+    # 8c. Если настроен backend — поллим изменения настроек из Mini App
+    async def periodic_settings_pull():
+        from feed_store import pull_pending_settings, push_settings
+        from settings_store import load_settings, save_settings
+        if not os.getenv("WEBAPP_BACKEND_URL"):
+            return
+        last_applied_ts = 0
+        while not _shutdown_event.is_set():
+            try:
+                data = await pull_pending_settings(since_ts=last_applied_ts)
+                if data and data.get("changed"):
+                    new_ts = int(data.get("ts", 0))
+                    incoming = data.get("settings") or {}
+                    if isinstance(incoming, dict) and incoming:
+                        cur = load_settings()
+                        # Применяем только пришедшие ключи
+                        cur.update(incoming)
+                        save_settings(cur)
+                        last_applied_ts = new_ts
+                        logger.info(
+                            f"Mini App settings applied: {list(incoming.keys())}"
+                        )
+                        # Подтверждаем backend, что изменения применены
+                        await push_settings(cur)
+            except Exception:
+                logger.exception("settings pull failed")
+            await asyncio.sleep(15)
+
+    asyncio.create_task(periodic_settings_pull(), name="settings_pull")
+
     # 8a. Web App HTTP сервер (если задан WEBAPP_PORT — поднимаем)
     webapp_runner = None
     try:
