@@ -167,10 +167,14 @@ async def main():
 
     asyncio.create_task(periodic_test_alert(), name="test_alert_pull")
 
-    # 8a. Web App HTTP сервер (если задан WEBAPP_PORT — поднимаем)
+    # 8a. Web App HTTP сервер.
+    # Поднимаем если задан WEBAPP_PORT (локально) или PORT (Render/Railway/etc).
+    # На Render free Web Service бот ОБЯЗАН слушать $PORT, иначе контейнер
+    # помечается как unhealthy и не получает трафика → не разбудится keep-alive ping.
     webapp_runner = None
+    port_str = os.getenv("WEBAPP_PORT") or os.getenv("PORT") or "0"
     try:
-        webapp_port = int(os.getenv("WEBAPP_PORT", "0") or 0)
+        webapp_port = int(port_str)
     except ValueError:
         webapp_port = 0
     if webapp_port > 0:

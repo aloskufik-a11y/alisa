@@ -1,0 +1,36 @@
+# Render.com Blueprint
+# Подключи репо к Render, выбери "Blueprint" и Render развернёт сервис автоматически.
+# Вручную потом добавь переменные с sync: false в дашборде (значения не хранятся в git).
+#
+# Free Web Service (vs paid Worker) — потому что у Render free tier поддерживает
+# только web services, и они засыпают через 15 мин idle. Мы держим бота
+# проснувшимся внешним пингом /healthz каждые 5 минут (cron-job.org / UptimeRobot).
+
+services:
+  - type: web
+    name: gift-monitor-bot
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: devin/1777733662-fix-parsing-and-monitoring
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: BOT_TOKEN
+        sync: false
+      - key: USER_ID
+        sync: false
+      - key: TELEGRAM_STRING_SESSION
+        sync: false
+      - key: WEBAPP_BACKEND_URL
+        value: https://tg-gift-monitor-webap-lypjcjfp.fly.dev
+      - key: MINI_APP_URL
+        value: https://tg-gift-monitor-webap-lypjcjfp.fly.dev
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: LOG_LEVEL
+        value: INFO

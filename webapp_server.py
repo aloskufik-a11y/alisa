@@ -69,11 +69,21 @@ async def _health(_: web.Request) -> web.Response:
     return web.json_response({"ok": True, "feed_size": size()})
 
 
+async def _healthz(_: web.Request) -> web.Response:
+    """Plain-text healthcheck for external pingers (cron-job.org / UptimeRobot).
+
+    Render free Web Services sleep after 15 min idle — этот эндпоинт пингуется
+    извне каждые 5 мин чтобы держать контейнер активным.
+    """
+    return web.Response(text="ok")
+
+
 def make_app() -> web.Application:
     app = web.Application()
     app.router.add_get("/", _index)
     app.router.add_get("/api/feed", _feed)
     app.router.add_get("/api/health", _health)
+    app.router.add_get("/healthz", _healthz)
     if STATIC_DIR.exists():
         app.router.add_static("/static/", STATIC_DIR, show_index=False)
     return app
