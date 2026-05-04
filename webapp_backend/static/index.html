@@ -76,16 +76,30 @@
   /* Filters */
   .filters-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .pill {
-    display: inline-flex; align-items: center; gap: 4px;
-    background: var(--card); border: 1px solid transparent; border-radius: 99px;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 99px;
     padding: 6px 11px; font-size: 13px; font-weight: 500; cursor: pointer;
-    color: var(--fg-soft); transition: all .15s; line-height: 1; user-select: none;
+    color: var(--fg-soft); transition: transform .12s, background .15s, color .15s, border-color .15s, box-shadow .18s;
+    line-height: 1; user-select: none; will-change: transform;
   }
-  .pill:active { transform: scale(.96); }
-  .pill.active { background: var(--accent); color: var(--accent-fg); }
-  .pill.market-mrkt.active { background: var(--mrkt); }
-  .pill.market-portals.active { background: var(--portals); color: #06291a; }
-  .pill.market-fragment.active { background: var(--fragment); color: #001628; }
+  .pill:active { transform: scale(.94); }
+  .pill.active {
+    background: var(--accent); color: var(--accent-fg); border-color: transparent;
+    box-shadow: 0 4px 12px rgba(78,161,255,.25);
+  }
+  /* Per-flag accent colors when active */
+  .pill[data-flag="below_floor"].active { background: linear-gradient(135deg,#34c77c,#1ea05f); box-shadow: 0 4px 12px rgba(52,199,124,.35); color: #fff; }
+  .pill[data-flag="rare5"].active     { background: linear-gradient(135deg,#f7b955,#d18e2c); box-shadow: 0 4px 12px rgba(247,185,85,.35); color: #1a1206; }
+  .pill[data-flag="lucky777"].active  { background: linear-gradient(135deg,#7be58c,#34c77c); box-shadow: 0 4px 12px rgba(52,199,124,.35); color: #06291a; }
+  .pill[data-flag="round"].active     { background: linear-gradient(135deg,#ffd479,#f0a73b); box-shadow: 0 4px 12px rgba(240,167,59,.35); color: #2b1900; }
+  .pill[data-flag="palindrome"].active{ background: linear-gradient(135deg,#82b8ff,#4ea1ff); box-shadow: 0 4px 12px rgba(78,161,255,.35); color: #001628; }
+  .pill[data-flag="repeat"].active    { background: linear-gradient(135deg,#c69cff,#a06bff); box-shadow: 0 4px 12px rgba(160,107,255,.35); color: #fff; }
+  .pill[data-flag="sub100"].active    { background: linear-gradient(135deg,#ffd166,#ef9c2b); box-shadow: 0 4px 12px rgba(239,156,43,.35); color: #2b1900; }
+  .pill[data-flag="mono"].active      { background: linear-gradient(135deg,#ff8fc6,#cf4fa4); box-shadow: 0 4px 12px rgba(207,79,164,.35); color: #2b0014; }
+  .pill[data-flag="new"].active       { background: linear-gradient(135deg,#fed813,#f0a73b); box-shadow: 0 4px 12px rgba(254,216,19,.35); color: #1a1206; }
+  .pill.market-mrkt.active     { background: linear-gradient(135deg,#a06bff,#7d4fd1); color:#fff; box-shadow: 0 4px 12px rgba(160,107,255,.35); }
+  .pill.market-portals.active  { background: linear-gradient(135deg,#34c77c,#1ea05f); color:#fff; box-shadow: 0 4px 12px rgba(52,199,124,.35); }
+  .pill.market-fragment.active { background: linear-gradient(135deg,#4ea1ff,#1f6fd6); color:#fff; box-shadow: 0 4px 12px rgba(78,161,255,.35); }
   .pill .dot {
     width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
     margin-right: 2px;
@@ -93,7 +107,28 @@
   .pill.market-mrkt .dot { background: var(--mrkt); }
   .pill.market-portals .dot { background: var(--portals); }
   .pill.market-fragment .dot { background: var(--fragment); }
-  .pill.active .dot { background: rgba(255,255,255,.7); }
+  .pill.active .dot { background: rgba(255,255,255,.85); }
+  .pill .x { margin-left: 2px; opacity: .55; font-size: 14px; line-height: 1; }
+
+  /* Filter group with chevron (model / backdrop) */
+  .filter-group { position: relative; }
+  .filter-pop {
+    position: absolute; top: calc(100% + 6px); left: 0;
+    background: var(--card-h); border: 1px solid var(--line); border-radius: 14px;
+    padding: 8px; min-width: 220px; max-width: min(80vw, 320px);
+    max-height: 50vh; overflow-y: auto; z-index: 30;
+    box-shadow: 0 12px 32px rgba(0,0,0,.5);
+    display: none; flex-wrap: wrap; gap: 4px;
+  }
+  .filter-pop.open { display: flex; }
+  .filter-pop .pill { font-size: 12px; padding: 5px 9px; }
+  .filter-pop .search {
+    width: 100%; margin-bottom: 4px;
+  }
+  .scrim {
+    position: fixed; inset: 0; z-index: 25; display: none; background: transparent;
+  }
+  .scrim.show { display: block; }
 
   input[type="text"], input[type="number"], select {
     background: var(--card); color: var(--fg); border: none;
@@ -148,12 +183,22 @@
   .thumb {
     width: 72px; height: 72px; border-radius: 12px; flex: none;
     background: linear-gradient(135deg, #2a2f38 0%, #1a1d22 100%);
-    background-size: cover; background-position: center;
     display: flex; align-items: center; justify-content: center;
-    font-size: 30px; position: relative;
+    font-size: 30px; position: relative; overflow: hidden;
   }
+  .thumb img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: opacity .25s ease;
+    background: linear-gradient(135deg, #2a2f38 0%, #1a1d22 100%);
+  }
+  .thumb img.loading { opacity: 0; }
   .thumb.placeholder::after {
     content: "🎁"; opacity: .5;
+  }
+  .card.card-new { animation: card-appear .35s ease; }
+  @keyframes card-appear {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
   }
   .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
   .title-line {
@@ -384,6 +429,7 @@
     <span class="pill market-portals" data-market="portals"><span class="dot"></span>Portals</span>
     <span class="pill market-fragment" data-market="fragment"><span class="dot"></span>Fragment</span>
     <span class="pill" data-flag="below_floor">⬇️ Ниже Floor</span>
+    <span class="pill" data-flag="new">✨ Новые 5 мин</span>
     <span class="pill" data-flag="rare5">💠 Ультра-редкие</span>
     <span class="pill" data-flag="lucky777">🍀 #777</span>
     <span class="pill" data-flag="round">⭕ Круглые</span>
@@ -391,14 +437,37 @@
     <span class="pill" data-flag="repeat">🔁 Повтор</span>
     <span class="pill" data-flag="sub100">🥇 #&lt;100</span>
     <span class="pill" data-flag="mono">🎨 Монохром</span>
+    <div class="filter-group">
+      <span class="pill" id="model-pill">🪄 Модель ▾</span>
+      <div class="filter-pop" id="model-pop">
+        <input class="search" type="text" id="model-search" placeholder="Поиск моделей…" />
+        <div id="model-list" class="filters-row" style="width:100%"></div>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="pill" id="backdrop-pill">🌅 Фон ▾</span>
+      <div class="filter-pop" id="backdrop-pop">
+        <input class="search" type="text" id="backdrop-search" placeholder="Поиск фонов…" />
+        <div id="backdrop-list" class="filters-row" style="width:100%"></div>
+      </div>
+    </div>
   </div>
+  <div class="scrim" id="scrim"></div>
 </header>
 
 <main id="content">
+  <div id="skel-list" style="display:none; flex-direction:column; gap:8px;">
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+  </div>
+  <div id="cards" style="display:flex; flex-direction:column; gap:8px;"></div>
   <div class="empty" id="empty-state" style="display:none;">
     <div class="e-emoji">📭</div>
     <div class="e-title">Лента пуста</div>
-    <div class="e-sub">Подождите следующий цикл опроса (~30 сек) или ослабьте фильтры.</div>
+    <div class="e-sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
   </div>
 </main>
 
@@ -454,6 +523,11 @@ let state = {
   settings: null,
   pendingSettings: {},  // local diff
   activeTab: 'feed',
+  modelFilter: new Set(),
+  backdropFilter: new Set(),
+  domIndex: new Map(),  // id -> { el, key }: persistent DOM nodes for diff render
+  newIds: new Set(),    // ids appeared in last refresh (for sparkle filter)
+  lastSeenIds: new Set(),
 };
 
 // ──────────────────────────────────────────────────────────
@@ -464,6 +538,26 @@ const fmtPrice = (v) => {
   if (v < 1) return v.toFixed(3);
   if (v < 10) return v.toFixed(2);
   return v.toFixed(1);
+};
+
+// Fragment-style slug: 'Vice Cream' -> 'vicecream', 'B-Day Candle' -> 'bdaycandle'
+const nameToSlug = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Image URL with Fragment CDN fallback (works for MRKT items where image_url is empty)
+const gifImageUrl = (it) => {
+  if (it && it.image_url) return it.image_url;
+  if (it && it.name && it.number != null && String(it.number).length) {
+    return `https://nft.fragment.com/gift/${nameToSlug(it.name)}-${it.number}.medium.jpg`;
+  }
+  return '';
+};
+
+const debounce = (fn, ms) => {
+  let t;
+  return function (...args) {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), ms);
+  };
 };
 const ago = (ts) => {
   const d = Math.max(0, Math.floor((Date.now() / 1000) - ts));
@@ -545,6 +639,7 @@ const showToast = (msg) => {
 async function loadFeed() {
   if (state.feedLoading) return;
   state.feedLoading = true;
+  let newItems = null;
   try {
     const r = await Promise.race([
       fetch(BACKEND + '/api/feed'),
@@ -552,16 +647,15 @@ async function loadFeed() {
     ]);
     const data = await r.json();
     if (data?.ok) {
-      state.items = data.items || [];
+      newItems = data.items || [];
       state.source = 'backend';
-      state.lastUpdate = Date.now() / 1000;
     }
   } catch (e) {
     // Fallback: live Portals via public CORS
     try {
       const r = await fetch('https://portal-market.com/api/nfts/search?limit=200&offset=0&status=listed');
       const data = await r.json();
-      state.items = (data.results || []).map(p => {
+      newItems = (data.results || []).map(p => {
         const attrs = p.attributes || [];
         const find = (t) => attrs.find(a => a.type === t) || {};
         const m = find('model'), b = find('backdrop'), s = find('symbol');
@@ -581,14 +675,22 @@ async function loadFeed() {
         };
       });
       state.source = 'fallback-portals';
-      state.lastUpdate = Date.now() / 1000;
     } catch (e2) {
       console.error('feed load failed', e2);
     }
   }
+  if (newItems) {
+    // Detect newly-appeared items for "✨ Новые 5 мин" filter & card animation.
+    const seen = state.lastSeenIds;
+    state.newIds = new Set(newItems.filter(it => !seen.has(it.id)).map(it => it.id));
+    state.lastSeenIds = new Set(newItems.map(it => it.id));
+    state.items = newItems;
+    state.lastUpdate = Date.now() / 1000;
+  }
   state.feedLoading = false;
   applyFilters();
   renderFeed();
+  renderModelBackdropChips();
 }
 
 async function loadSettings() {
@@ -607,8 +709,13 @@ async function loadSettings() {
 function applyFilters() {
   const q = state.search.toLowerCase().trim();
   const flags = state.flags;
+  const models = state.modelFilter;
+  const backdrops = state.backdropFilter;
+  const nowTs = Date.now() / 1000;
   state.filteredItems = state.items.filter(it => {
     if (state.market !== 'all' && it.market !== state.market) return false;
+    if (models.size && !models.has(it.model_name || '')) return false;
+    if (backdrops.size && !backdrops.has(it.backdrop_name || '')) return false;
     if (q) {
       const hay = [it.name, it.number, it.model_name, it.backdrop_name, it.symbol_name]
         .filter(Boolean).join(' ').toLowerCase();
@@ -625,6 +732,7 @@ function applyFilters() {
     if (flags.has('repeat') && !isRepeat(it.number)) return false;
     if (flags.has('sub100') && !isSub100(it.number)) return false;
     if (flags.has('mono') && !isMonochrome(it)) return false;
+    if (flags.has('new') && (nowTs - (it.ts || 0) > 300)) return false;
     return true;
   });
 
@@ -639,36 +747,57 @@ function applyFilters() {
   state.filteredItems.sort(cmp);
 }
 
+function itemKey(it) {
+  // Detect any visible change → triggers re-render of that single card.
+  return [it.id, it.price, it.floor_price, it.ts, it.market].join('|');
+}
+
 function renderFeed() {
-  const m = $('#content');
+  const m = $('#cards');
   const empty = $('#empty-state');
+  const skel = $('#skel-list');
   const cnt = state.filteredItems.length;
   $('#cnt').textContent = cnt;
 
   if (!state.items.length && state.feedLoading) {
-    m.innerHTML = '';
-    for (let i = 0; i < 5; i++) {
-      const sk = document.createElement('div');
-      sk.className = 'skeleton skel-card';
-      m.appendChild(sk);
-    }
+    m.style.display = 'none';
     empty.style.display = 'none';
+    skel.style.display = '';
     return;
   }
+  skel.style.display = 'none';
 
   if (!cnt) {
-    m.innerHTML = '';
+    m.style.display = 'none';
     empty.style.display = '';
     return;
   }
+  m.style.display = '';
   empty.style.display = 'none';
 
-  const frag = document.createDocumentFragment();
-  for (const it of state.filteredItems.slice(0, 200)) {
-    frag.appendChild(card(it));
+  // ── Diff-based DOM update ─────────────────────────────────
+  // Re-use existing card nodes when the underlying item is unchanged.
+  // This keeps scroll position stable, avoids reflow, and makes
+  // filter / sort operations effectively instant.
+  const visible = state.filteredItems.slice(0, 200);
+  const newIndex = new Map();
+  // Pass 1: build/refresh nodes
+  for (const it of visible) {
+    const key = itemKey(it);
+    const existing = state.domIndex.get(it.id);
+    if (existing && existing.key === key) {
+      newIndex.set(it.id, existing);
+    } else {
+      const el = card(it);
+      if (state.newIds.has(it.id)) el.classList.add('card-new');
+      newIndex.set(it.id, { el, key });
+    }
   }
-  m.innerHTML = '';
-  m.appendChild(frag);
+  // Pass 2: re-order DOM in sorted order, append new, drop missing.
+  const desiredEls = visible.map(it => newIndex.get(it.id).el);
+  // Use replaceChildren — single DOM mutation, O(n).
+  m.replaceChildren(...desiredEls);
+  state.domIndex = newIndex;
 
   $('#status-text').innerHTML =
     `<b>${cnt}</b> / ${state.items.length} лотов · ` +
@@ -685,8 +814,20 @@ function card(it) {
 
   const thumb = document.createElement('div');
   thumb.className = 'thumb';
-  if (it.image_url) {
-    thumb.style.backgroundImage = `url('${it.image_url}')`;
+  const src = gifImageUrl(it);
+  if (src) {
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = '';
+    img.className = 'loading';
+    img.src = src;
+    img.onload = () => img.classList.remove('loading');
+    img.onerror = () => {
+      img.remove();
+      thumb.classList.add('placeholder');
+    };
+    thumb.appendChild(img);
   } else {
     thumb.classList.add('placeholder');
   }
@@ -774,9 +915,10 @@ let openModal = function(it) {
   };
 
   const c = $('#modal-content');
+  const imgSrc = gifImageUrl(it);
   c.innerHTML = `
-    ${it.image_url
-      ? `<div class="modal-img" style="background-image:url('${it.image_url}')"></div>`
+    ${imgSrc
+      ? `<div class="modal-img" style="background-image:url('${imgSrc}')"></div>`
       : `<div class="modal-img" style="display:flex;align-items:center;justify-content:center;font-size:80px">🎁</div>`}
     <h2>${escapeHtml(it.name || '?')}
         <span class="num">#${it.number ?? '?'}</span>
@@ -1116,6 +1258,7 @@ $$('[data-market]').forEach(p => p.addEventListener('click', () => {
   state.market = p.dataset.market;
   $$('[data-market]').forEach(x => x.classList.toggle('active', x.dataset.market === state.market));
   applyFilters(); renderFeed();
+  renderModelBackdropChips();
   tg?.HapticFeedback?.selectionChanged();
 }));
 
@@ -1127,10 +1270,8 @@ $$('[data-flag]').forEach(p => p.addEventListener('click', () => {
   tg?.HapticFeedback?.selectionChanged();
 }));
 
-$('#q').addEventListener('input', (e) => {
-  state.search = e.target.value;
-  applyFilters(); renderFeed();
-});
+const onSearch = debounce((v) => { state.search = v; applyFilters(); renderFeed(); }, 80);
+$('#q').addEventListener('input', (e) => onSearch(e.target.value));
 $('#sort').addEventListener('change', (e) => {
   state.sort = e.target.value;
   applyFilters(); renderFeed();
@@ -1142,6 +1283,93 @@ $('#refresh-btn').addEventListener('click', () => {
 });
 $('#save-btn').addEventListener('click', saveSettings);
 
+// ─── Model / Backdrop multi-select popovers ────────────────
+function uniqueValues(field) {
+  const set = new Map();
+  for (const it of state.items) {
+    const v = (it[field] || '').trim();
+    if (!v) continue;
+    set.set(v, (set.get(v) || 0) + 1);
+  }
+  return Array.from(set.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderModelBackdropChips() {
+  // Update label counters on the trigger pills + render lists.
+  const mp = $('#model-pill');
+  const bp = $('#backdrop-pill');
+  if (mp) {
+    const n = state.modelFilter.size;
+    mp.innerHTML = n
+      ? `🪄 Модель · <b>${n}</b> ▾ <span class="x" data-clear="model">×</span>`
+      : `🪄 Модель ▾`;
+    mp.classList.toggle('active', n > 0);
+  }
+  if (bp) {
+    const n = state.backdropFilter.size;
+    bp.innerHTML = n
+      ? `🌅 Фон · <b>${n}</b> ▾ <span class="x" data-clear="backdrop">×</span>`
+      : `🌅 Фон ▾`;
+    bp.classList.toggle('active', n > 0);
+  }
+  fillFilterList('model_name', $('#model-list'), state.modelFilter, $('#model-search')?.value);
+  fillFilterList('backdrop_name', $('#backdrop-list'), state.backdropFilter, $('#backdrop-search')?.value);
+}
+
+function fillFilterList(field, container, set, query) {
+  if (!container) return;
+  const q = (query || '').toLowerCase().trim();
+  const values = uniqueValues(field).filter(([v]) => !q || v.toLowerCase().includes(q));
+  const frag = document.createDocumentFragment();
+  for (const [v, count] of values.slice(0, 100)) {
+    const p = document.createElement('span');
+    p.className = 'pill' + (set.has(v) ? ' active' : '');
+    p.textContent = `${v} · ${count}`;
+    p.onclick = () => {
+      if (set.has(v)) set.delete(v); else set.add(v);
+      applyFilters(); renderFeed(); renderModelBackdropChips();
+      tg?.HapticFeedback?.selectionChanged();
+    };
+    frag.appendChild(p);
+  }
+  container.replaceChildren(frag);
+}
+
+function togglePop(name) {
+  const pop = $('#' + name + '-pop');
+  const sc = $('#scrim');
+  const others = ['model', 'backdrop'].filter(x => x !== name);
+  others.forEach(x => $('#' + x + '-pop').classList.remove('open'));
+  const open = pop.classList.toggle('open');
+  sc.classList.toggle('show', open);
+}
+
+$('#model-pill').addEventListener('click', (e) => {
+  if (e.target.dataset.clear === 'model') {
+    state.modelFilter.clear();
+    applyFilters(); renderFeed(); renderModelBackdropChips();
+    return;
+  }
+  togglePop('model');
+});
+$('#backdrop-pill').addEventListener('click', (e) => {
+  if (e.target.dataset.clear === 'backdrop') {
+    state.backdropFilter.clear();
+    applyFilters(); renderFeed(); renderModelBackdropChips();
+    return;
+  }
+  togglePop('backdrop');
+});
+$('#model-search').addEventListener('input', () =>
+  fillFilterList('model_name', $('#model-list'), state.modelFilter, $('#model-search').value));
+$('#backdrop-search').addEventListener('input', () =>
+  fillFilterList('backdrop_name', $('#backdrop-list'), state.backdropFilter, $('#backdrop-search').value));
+$('#scrim').addEventListener('click', () => {
+  $('#model-pop').classList.remove('open');
+  $('#backdrop-pop').classList.remove('open');
+  $('#scrim').classList.remove('show');
+});
+
 // init default market: all
 $$('[data-market="all"]').forEach(x => x.classList.add('active'));
 
@@ -1149,17 +1377,17 @@ $$('[data-market="all"]').forEach(x => x.classList.add('active'));
 loadFeed();
 loadSettings();
 
-// auto-refresh
+// auto-refresh — feed: 6s, settings: 8s for snappy live experience.
 setInterval(() => {
   if (document.visibilityState === 'visible' && state.activeTab === 'feed') {
     loadFeed();
   }
-}, 25000);
+}, 6000);
 setInterval(() => {
   if (document.visibilityState === 'visible' && state.activeTab === 'settings') {
     loadSettings();
   }
-}, 20000);
+}, 8000);
 setInterval(() => {
   if (state.lastUpdate) {
     const ts = $('#status-text');

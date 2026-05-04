@@ -373,6 +373,12 @@ def parse_mrkt_json(json_data: dict) -> list:
             rarity = rarity_raw.capitalize() if rarity_raw else ""
 
             image_url = _extract_image(item)
+            # MRKT API does not include image URLs in the bulk listing endpoint.
+            # Fall back to Fragment's public CDN (covers all Telegram NFT gifts).
+            if not image_url and gift_name and number:
+                slug = re.sub(r"[^a-z0-9]", "", gift_name.lower())
+                if slug:
+                    image_url = f"https://nft.fragment.com/gift/{slug}-{number}.medium.jpg"
             total_count = item.get("total_count") or item.get("totalCount") \
                 or item.get("totalUpgradedCount") or item.get("maxUpgradedCount") or 0
 
