@@ -6,7 +6,9 @@ import json
 import os
 import threading
 
-SETTINGS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings.json")
+SETTINGS_FILE = os.getenv("SETTINGS_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "settings.json"
+)
 
 _lock = threading.Lock()
 
@@ -40,6 +42,17 @@ DEFAULT_SETTINGS: dict = {
     # когда у лота есть атрибут с per-mille ≤ recent_rare_pm.
     "recent_rare_mode": False,
     "recent_rare_pm":   5.0,
+
+    # Watchlist: алертит ЛЮБОЙ новый лот с этими атрибутами,
+    # даже если price выше floor. Списки имен (case-insensitive).
+    "watchlist_names":     [],   # gift name, e.g. "Plush Pepe"
+    "watchlist_models":    [],   # model name, e.g. "Diamond Ring"
+    "watchlist_backdrops": [],   # backdrop name, e.g. "Sapphire"
+
+    # Авто-алерт когда floor коллекции внезапно ОПУСТИЛСЯ ниже на N%
+    # (берётся snapshot floor каждые 60 сек, разница > порога → алерт).
+    "floor_drop_alert":    False,
+    "floor_drop_pct":      5.0,
 
     # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
     # Пустая строка = кнопка скрыта.

@@ -948,6 +948,16 @@ DEFAULT_S: dict = {
     "recent_rare_mode": False,
     "recent_rare_pm":   5.0,
 
+    # ── Watchlist: алертит ЛЮБОЙ новый лот с этими атрибутами,
+    #    даже если price выше floor. Списки имен (case-insensitive).
+    "watchlist_names":     [],
+    "watchlist_models":    [],
+    "watchlist_backdrops": [],
+
+    # ── Авто-алерт когда floor коллекции внезапно ОПУСТИЛСЯ ниже на N%
+    "floor_drop_alert":    False,
+    "floor_drop_pct":      5.0,
+
     # Mini App URL (для кнопки в /settings)
     "mini_app_url": "",
 }
@@ -1093,7 +1103,22 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
                 is_rare_listing = True
                 break
 
-    if not is_rare_listing:
+    # Watchlist bypass: если name/model/backdrop совпадает с watchlist — алертим.
+    name_lc = (gift_data.get("name") or "").lower().strip()
+    model_lc = (gift_data.get("model_name") or "").lower().strip()
+    bd_lc = (gift_data.get("backdrop_name") or "").lower().strip()
+    wl_names = {x.lower().strip() for x in (s.get("watchlist_names") or []) if x}
+    wl_models = {x.lower().strip() for x in (s.get("watchlist_models") or []) if x}
+    wl_bds = {x.lower().strip() for x in (s.get("watchlist_backdrops") or []) if x}
+    is_watched = (
+        (name_lc and name_lc in wl_names) or
+        (model_lc and model_lc in wl_models) or
+        (bd_lc and bd_lc in wl_bds)
+    )
+
+    bypass_floor = is_rare_listing or is_watched
+
+    if not bypass_floor:
         if floor_valid:
             max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
             # +0.000001 запас на ошибки округления
@@ -1103,9 +1128,9 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
             # Без known floor мы не можем гарантировать выгодность
             return False
 
-    # 4. Минимальная скидка от floor (если требуется)
+    # 4. Минимальная скидка от floor (если требуется). Watchlist и rare-режим обходят.
     min_discount = int(s.get("min_discount_pct", 0))
-    if min_discount > 0:
+    if min_discount > 0 and not bypass_floor:
         if not floor_valid:
             return False
         discount_pct = (float(floor) - price) / float(floor) * 100.0

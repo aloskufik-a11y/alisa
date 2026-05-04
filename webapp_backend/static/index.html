@@ -289,6 +289,47 @@
   .multi-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px 14px; }
   .multi-pills .pill { font-size: 12px; padding: 5px 10px; }
 
+  /* Watchlist UI */
+  .wl-search {
+    width: calc(100% - 32px); margin: 0 16px; padding: 8px 12px;
+    border-radius: 10px; background: var(--card); border: 1px solid var(--line);
+    color: var(--fg); font-size: 13px; box-sizing: border-box;
+  }
+  .wl-search:focus { outline: none; border-color: var(--accent); }
+  .watchlist-selected { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 16px; min-height: 22px; }
+  .watchlist-selected .pill { font-size: 12px; padding: 4px 9px; }
+  .watchlist-options {
+    display: flex; flex-wrap: wrap; gap: 5px; padding: 0 16px 8px;
+    max-height: 180px; overflow-y: auto;
+  }
+  .watchlist-options .pill { font-size: 11.5px; padding: 4px 8px; }
+  .watchlist-options .pill:not(.active) { opacity: .85; }
+
+  /* Action buttons (Test, Reset etc) */
+  .btn-action {
+    background: var(--accent); color: var(--accent-fg);
+    padding: 8px 14px; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(78,161,255,.28);
+    transition: transform .1s, box-shadow .15s, background .15s;
+  }
+  .btn-action:active { transform: scale(.96); }
+  .btn-action.danger {
+    background: linear-gradient(135deg,#ff7a7a,#cf4f4f); color: #fff;
+    box-shadow: 0 3px 10px rgba(207,79,79,.32);
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0 16px 12px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px; text-align: center;
+  }
+  .stat-v { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat-l { font-size: 11.5px; color: var(--fg-soft); margin-top: 2px; }
+
   .save-bar {
     position: sticky; bottom: 0; padding: 12px 16px;
     background: linear-gradient(to top, var(--bg) 60%, transparent);
@@ -1068,6 +1109,51 @@ function renderSettings() {
     </div>
 
     <div class="setting-section">
+      <h3>👁 Watchlist</h3>
+      <div class="setting" style="flex-direction:column; align-items:flex-start;">
+        <div class="setting-name">Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.</div>
+      </div>
+      ${watchlistChips('🎁 Подарки', 'watchlist_names', 'name', s.watchlist_names)}
+      ${watchlistChips('🪄 Модели', 'watchlist_models', 'model_name', s.watchlist_models)}
+      ${watchlistChips('🌅 Фоны', 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
+    </div>
+
+    <div class="setting-section">
+      <h3>📉 Падение Floor</h3>
+      ${toggleRow('Алерт при падении floor', 'floor_drop_alert', s.floor_drop_alert,
+        'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.')}
+      ${stepperRow('Порог падения, %', 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>🛠 Инструменты</h3>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">Тестовое уведомление</span>
+          <span class="setting-hint">Бот пришлёт сообщение, чтобы проверить канал доставки.</span>
+        </div>
+        <button class="btn-action" onclick="sendTestAlert()">📤 Отправить</button>
+      </div>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">Сбросить настройки</span>
+          <span class="setting-hint">Вернуть все поля к значениям по умолчанию.</span>
+        </div>
+        <button class="btn-action danger" onclick="resetSettings()">↺ Сбросить</button>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <h3>📊 Статистика</h3>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-v">${state.items.length}</div><div class="stat-l">лотов в ленте</div></div>
+        <div class="stat"><div class="stat-v">${state.items.filter(x => (x.floor_price || 0) > x.price).length}</div><div class="stat-l">ниже floor</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('name').length}</div><div class="stat-l">коллекций</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('model_name').length}</div><div class="stat-l">моделей</div></div>
+      </div>
+    </div>
+
+    <div class="setting-section">
       <h3>ℹ️ О приложении</h3>
       <div class="setting">
         <div class="setting-label"><span class="setting-name">Backend</span>
@@ -1093,6 +1179,112 @@ function renderSettings() {
       tg?.HapticFeedback?.selectionChanged();
     });
   });
+  // Wire watchlist search inputs
+  pane.querySelectorAll('[data-wl-search]').forEach(inp => {
+    inp.addEventListener('input', (e) => {
+      const key = inp.dataset.wlSearch;
+      const list = pane.querySelector('[data-wl-list="' + key + '"]');
+      const field = inp.dataset.wlField;
+      const cur = new Set(currentSettings()[key] || []);
+      list.innerHTML = renderWatchlistOptions(field, key, cur, e.target.value);
+      attachWatchlistOptionHandlers(list, key, field);
+    });
+  });
+}
+
+// ─── Watchlist helpers ─────────────────────────────────────────────────
+function watchlistChips(label, key, field, selected) {
+  const sel = new Set(selected || []);
+  return `
+    <div class="setting" style="flex-direction:column; align-items:flex-start; gap:6px;">
+      <div class="setting-name">${label}</div>
+      <div class="watchlist-selected" data-wl-selected="${key}">
+        ${[...sel].map(v => `
+          <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
+        `).join('') || '<span class="setting-hint">пусто</span>'}
+      </div>
+      <input class="wl-search" type="text" placeholder="Поиск ${label.toLowerCase()}…"
+             data-wl-search="${key}" data-wl-field="${field}" />
+      <div class="watchlist-options" data-wl-list="${key}">
+        ${renderWatchlistOptions(field, key, sel, '')}
+      </div>
+    </div>`;
+}
+
+function escAttr(v) { return String(v || '').replace(/"/g, '&quot;'); }
+
+function renderWatchlistOptions(field, key, selectedSet, query) {
+  const q = (query || '').toLowerCase().trim();
+  const all = uniqueValues(field).filter(([v]) => !q || v.toLowerCase().includes(q));
+  return all.slice(0, 30).map(([v, n]) => {
+    const on = selectedSet.has(v);
+    return `<span class="pill${on ? ' active' : ''}" data-wl-add="${key}" data-val="${escAttr(v)}">${v} · ${n}</span>`;
+  }).join('') || '<span class="setting-hint">ничего не найдено</span>';
+}
+
+function attachWatchlistOptionHandlers(list, key, field) {
+  list.querySelectorAll('[data-wl-add]').forEach(p => {
+    p.onclick = () => {
+      const val = p.dataset.val;
+      const cur = currentSettings()[key] || [];
+      const next = cur.includes(val) ? cur.filter(x => x !== val) : [...cur, val];
+      patchSetting(key, next);
+      p.classList.toggle('active');
+      // Re-render selected chips strip
+      const selStrip = $('[data-wl-selected="' + key + '"]');
+      const sel = new Set(currentSettings()[key] || []);
+      selStrip.innerHTML = [...sel].map(v => `
+        <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
+      `).join('') || '<span class="setting-hint">пусто</span>';
+      attachWatchlistRemoveHandlers(selStrip, key);
+      tg?.HapticFeedback?.selectionChanged();
+    };
+  });
+}
+
+function attachWatchlistRemoveHandlers(strip, key) {
+  strip.querySelectorAll('[data-wl-rm]').forEach(p => {
+    p.onclick = () => {
+      const val = p.dataset.val;
+      const cur = currentSettings()[key] || [];
+      patchSetting(key, cur.filter(x => x !== val));
+      renderSettings();
+      tg?.HapticFeedback?.selectionChanged();
+    };
+  });
+}
+
+async function sendTestAlert() {
+  try {
+    const r = await fetch(BACKEND + '/api/test-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('📤 Запрос отправлен, бот пришлёт сообщение через ~10 сек');
+      tg?.HapticFeedback?.notificationOccurred('success');
+    } else {
+      showToast('❌ Ошибка');
+    }
+  } catch (e) {
+    showToast('❌ Ошибка сети');
+  }
+}
+
+function resetSettings() {
+  if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
+  const def = {
+    max_price_ton: 50, min_price_ton: 0, floor_tolerance_pct: 0, min_discount_pct: 0,
+    require_floor: true, monochrome_only: false, max_rarity_pm: 0,
+    notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true,
+    quiet_hours_start: 0, quiet_hours_end: 0, max_alerts_per_cycle: 0,
+    recent_rare_mode: false, recent_rare_pm: 5,
+    watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
+    floor_drop_alert: false, floor_drop_pct: 5,
+    filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+  };
+  state.pendingSettings = { ...state.pendingSettings, ...def };
+  renderSettings();
+  $('#save-bar').style.display = '';
+  if (typeof updateMainButton === 'function') updateMainButton();
 }
 
 function currentSettings() {

@@ -141,6 +141,37 @@ async def push_batch(items: list, market: str, mode: str = "replace") -> None:
     await _post_to_backend(body)
 
 
+async def pull_pending_test_alert(since_ts: int = 0) -> int:
+    """
+    Возвращает ts последнего запроса теста, если он новее since_ts.
+    Иначе 0.
+    """
+    if not _BACKEND_URL:
+        return 0
+    global _session
+    try:
+        import aiohttp
+        if _session is None or _session.closed:
+            _session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8))
+        params = {"since": str(int(since_ts or 0))}
+        headers = {}
+        if _BACKEND_KEY:
+            headers["X-API-Key"] = _BACKEND_KEY
+        async with _session.get(
+            f"{_BACKEND_URL}/api/pending_test_alert",
+            params=params, headers=headers,
+        ) as r:
+            if r.status != 200:
+                return 0
+            data = await r.json()
+            if data.get("ok") and data.get("changed"):
+                return int(data.get("ts", 0))
+            return 0
+    except Exception as e:
+        logger.debug(f"Backend pull test alert failed: {e}")
+        return 0
+
+
 async def pull_pending_settings(since_ts: int = 0) -> dict | None:
     """
     Тянет с backend настройки, которые пользователь поменял в Mini App.

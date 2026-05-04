@@ -281,6 +281,12 @@ _DEFAULT_SETTINGS = {
     "max_alerts_per_cycle": 0,
     "recent_rare_mode": False,
     "recent_rare_pm": 5.0,
+    "watchlist_names": [],
+    "watchlist_models": [],
+    "watchlist_backdrops": [],
+    "floor_drop_alert": False,
+    "floor_drop_pct": 5.0,
+    "mini_app_url": "",
 }
 
 
@@ -518,6 +524,33 @@ async def pending_settings(since: int = 0, x_api_key: str = Header(default="")):
             "settings": _pending_settings.get("settings", {}),
         }
     return {"ok": True, "changed": False, "ts": ts}
+
+
+# ─── Тестовый алерт (Mini App → backend → бот) ───────────────────────
+_test_alert: dict = {"ts": 0}
+
+
+@app.post("/api/test-alert")
+async def post_test_alert(request: Request):
+    """Mini App просит бота прислать тестовое уведомление."""
+    is_broadcast = bool(request.headers.get("X-Internal-Broadcast"))
+    _test_alert["ts"] = int(time.time())
+    if not is_broadcast:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        await _broadcast_to_peers(body or {}, "", endpoint="/api/test-alert")
+    return {"ok": True, "ts": _test_alert["ts"]}
+
+
+@app.get("/api/pending_test_alert")
+async def get_pending_test_alert(since: int = 0, x_api_key: str = Header(default="")):
+    """Бот поллит этот endpoint и шлёт тестовое уведомление пользователю."""
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="bad api key")
+    ts = _test_alert.get("ts", 0)
+    return {"ok": True, "changed": bool(ts and ts > since), "ts": ts}
 
 
 # Background warm-up

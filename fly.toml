@@ -1,0 +1,18 @@
+# Fly.io app for the bot itself (separate from the Mini App backend).
+# Free tier: 1 shared-cpu-1x VM (256MB) + 1GB volume.
+app = "alisa-gift-bot"
+primary_region = "fra"
+
+[build]
+
+[env]
+  WEBAPP_BACKEND_URL = "https://tg-gift-monitor-webap-lypjcjfp.fly.dev"
+
+[[mounts]]
+  source = "alisa_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpu_kind = "shared"

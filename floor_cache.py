@@ -35,17 +35,29 @@ UA = (
 
 
 class _SimpleCache:
-    """Потокобезопасный кэш {key: (price_ton, fetched_at)}."""
+    """Потокобезопасный кэш {key: price_ton} + история для floor-drop алертов."""
 
     def __init__(self):
         self._data: dict[str, float] = {}
+        self._previous: dict[str, float] = {}  # для floor-drop сравнения
         self._fetched_at: float = 0.0
         self._lock = asyncio.Lock()
 
-    async def update(self, data: dict[str, float]):
+    async def update(self, data: dict[str, float]) -> dict[str, tuple[float, float]]:
+        """
+        Обновляет данные. Возвращает dict {key: (old_floor, new_floor)} для тех ключей,
+        где значение УПАЛО (new < old), чтобы вызывающий мог послать алерты.
+        """
+        drops: dict[str, tuple[float, float]] = {}
         async with self._lock:
+            for k, new in data.items():
+                old = self._data.get(k)
+                if old is not None and new < old:
+                    drops[k] = (old, new)
+            self._previous = dict(self._data)
             self._data = data
             self._fetched_at = time.time()
+        return drops
 
     def get(self, key: str) -> Optional[float]:
         if not self._data:
@@ -124,8 +136,10 @@ async def refresh_mrkt_loop(get_session, get_token, interval: int = FLOOR_REFRES
             if session is not None and token:
                 floors = await _fetch_mrkt_floors(session, token)
                 if floors:
-                    await _mrkt.update(floors)
+                    drops = await _mrkt.update(floors)
                     logger.info(f"MRKT floors: обновлено {len(floors)} коллекций")
+                    if drops:
+                        await _emit_floor_drops("MRKT", drops)
         except Exception as e:
             logger.warning(f"MRKT floors refresh: {e}")
         await asyncio.sleep(interval)
@@ -192,11 +206,59 @@ async def refresh_portals_loop(get_session, get_init_data, interval: int = FLOOR
             if session is not None and init_data:
                 floors = await _fetch_portals_floors(session, init_data)
                 if floors:
-                    await _portals.update(floors)
+                    drops = await _portals.update(floors)
                     logger.info(f"Portals floors: обновлено {len(floors)} коллекций")
+                    if drops:
+                        await _emit_floor_drops("Portals", drops)
         except Exception as e:
             logger.warning(f"Portals floors refresh: {e}")
         await asyncio.sleep(interval)
+
+
+# ─── Floor-drop alerts ───────────────────────────────────────────────────────
+
+async def _emit_floor_drops(market_label: str, drops: dict[str, tuple[float, float]]):
+    """
+    Отправляет уведомление при падении floor больше порога.
+    Алертит только самые крупные падения (топ-3 за цикл) чтобы не спамить.
+    """
+    try:
+        from settings_store import load_settings
+        from notifier import send_alert
+    except Exception:
+        return
+    s = load_settings()
+    if not s.get("floor_drop_alert"):
+        return
+    pct = float(s.get("floor_drop_pct", 5.0) or 5.0)
+    if pct <= 0:
+        return
+
+    significant: list[tuple[str, float, float, float]] = []
+    for key, (old, new) in drops.items():
+        if old <= 0:
+            continue
+        drop_pct = (old - new) / old * 100.0
+        if drop_pct >= pct:
+            significant.append((key, old, new, drop_pct))
+    if not significant:
+        return
+
+    # Топ-3 самых крупных
+    significant.sort(key=lambda x: x[3], reverse=True)
+    significant = significant[:3]
+
+    lines = [f"📉 <b>Floor упал на {market_label}</b>"]
+    for key, old, new, drop_pct in significant:
+        lines.append(
+            f"• <b>{key}</b>: {old:.2f} → {new:.2f} 💎 (−{drop_pct:.1f}%)"
+        )
+    msg = "\n".join(lines)
+    try:
+        await send_alert(msg)
+        logger.info(f"Floor-drop alert sent ({market_label}, {len(significant)} коллекций)")
+    except Exception:
+        logger.exception("send floor-drop alert failed")
 
 
 # ─── Применение к лотам ──────────────────────────────────────────────────────

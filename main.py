@@ -7,6 +7,7 @@ import logging
 import signal
 import sys
 import os
+import time
 
 # ─── Windows: нужен SelectorEventLoop для Telethon ──────────────────────────
 if sys.platform == "win32":
@@ -28,7 +29,9 @@ logging.getLogger("aiohttp").setLevel(logging.WARNING)
 
 logger = logging.getLogger("main")
 
-SESSION_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "userbot_session")
+SESSION_PATH = os.getenv("SESSION_PATH") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "userbot_session"
+)
 
 # Флаг для graceful shutdown
 _shutdown_event: asyncio.Event | None = None
@@ -130,6 +133,30 @@ async def main():
             await asyncio.sleep(15)
 
     asyncio.create_task(periodic_settings_pull(), name="settings_pull")
+
+    # 8d. Поллим тестовый алерт от Mini App
+    async def periodic_test_alert():
+        from feed_store import pull_pending_test_alert
+        from notifier import send_alert
+        if not os.getenv("WEBAPP_BACKEND_URL"):
+            return
+        last_ts = int(time.time())
+        while not _shutdown_event.is_set():
+            try:
+                ts = await pull_pending_test_alert(since_ts=last_ts)
+                if ts and ts > last_ts:
+                    last_ts = ts
+                    await send_alert(
+                        "🔔 <b>Тест Mini App</b>\n"
+                        "Это сообщение пришло по запросу из веб-приложения. "
+                        "Канал доставки уведомлений работает."
+                    )
+                    logger.info("Mini App test alert sent")
+            except Exception:
+                logger.exception("test alert poll failed")
+            await asyncio.sleep(8)
+
+    asyncio.create_task(periodic_test_alert(), name="test_alert_pull")
 
     # 8a. Web App HTTP сервер (если задан WEBAPP_PORT — поднимаем)
     webapp_runner = None
