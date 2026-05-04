@@ -167,6 +167,28 @@ async def main():
 
     asyncio.create_task(periodic_test_alert(), name="test_alert_pull")
 
+    # 8e. Self keep-alive ping — не даём Render free Web Service уснуть.
+    # Render помечает контейнер idle если 15 мин нет HTTP-трафика. Раз в 10 минут
+    # дёргаем свой публичный URL — request возвращается обратно к нам и сбрасывает таймер.
+    # Активно только если RENDER_EXTERNAL_URL выставлен (Render автоматически его пробрасывает).
+    async def periodic_self_ping():
+        external = os.getenv("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+        if not external:
+            return
+        import aiohttp
+        url = f"{external}/healthz"
+        logger.info(f"Self keep-alive ping enabled → {url}")
+        while not _shutdown_event.is_set():
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
+                        logger.debug(f"Self-ping {r.status}")
+            except Exception as e:
+                logger.debug(f"Self-ping failed: {e}")
+            await asyncio.sleep(600)
+
+    asyncio.create_task(periodic_self_ping(), name="self_ping")
+
     # 8a. Web App HTTP сервер.
     # Поднимаем если задан WEBAPP_PORT (локально) или PORT (Render/Railway/etc).
     # На Render free Web Service бот ОБЯЗАН слушать $PORT, иначе контейнер
