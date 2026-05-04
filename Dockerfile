@@ -15,11 +15,12 @@ RUN pip install -r requirements.txt
 
 COPY . ./
 
-# Подготовим volume для session/db
-RUN mkdir -p /data
-ENV BOT_LOG_FILE=/data/bot.log \
-    DB_PATH=/data/gifts.db \
-    SETTINGS_PATH=/data/settings.json \
-    SESSION_PATH=/data/userbot_session
+# Persistence стратегия:
+# - Если хост даёт volume (Fly.io) — переменные DB_PATH/SETTINGS_PATH/SESSION_PATH/BOT_LOG_FILE
+#   можно выставить на /data/* в окружении деплоя, и состояние выживает рестарт.
+# - Если volume нет (Koyeb free, Render) — оставляем дефолтные пути внутри /app:
+#   * Telethon-сессия читается из env TELEGRAM_STRING_SESSION (см. main.py)
+#   * settings.json подтягивается из Mini App backend на старте
+#   * database.sqlite и floor_cache.json эфемерны, восстанавливаются за 1-2 цикла поллинга
 
 CMD ["python", "run.py"]

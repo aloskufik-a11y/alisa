@@ -52,8 +52,17 @@ async def main():
     init_db()
 
     # 3. Создаём Telethon клиент
+    # На хостингах без persistent volume (Koyeb free / Render) удобнее
+    # передавать сессию через env-var TELEGRAM_STRING_SESSION; локально по-прежнему
+    # используется файл userbot_session.session.
     from telethon import TelegramClient
-    client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
+    string_session = os.getenv("TELEGRAM_STRING_SESSION", "").strip()
+    if string_session:
+        from telethon.sessions import StringSession
+        client = TelegramClient(StringSession(string_session), API_ID, API_HASH)
+        logger.info("Using TELEGRAM_STRING_SESSION from env (no .session file needed)")
+    else:
+        client = TelegramClient(SESSION_PATH, API_ID, API_HASH)
 
     logger.info("Подключение Telethon...")
     await client.start()
