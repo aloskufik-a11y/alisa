@@ -1190,6 +1190,16 @@ function renderSettings() {
       attachWatchlistOptionHandlers(list, key, field);
     });
   });
+  // Wire initial watchlist option / remove handlers (one-time on render)
+  pane.querySelectorAll('[data-wl-list]').forEach(list => {
+    const key = list.dataset.wlList;
+    const inp = pane.querySelector('[data-wl-search="' + key + '"]');
+    const field = inp ? inp.dataset.wlField : '';
+    attachWatchlistOptionHandlers(list, key, field);
+  });
+  pane.querySelectorAll('[data-wl-selected]').forEach(strip => {
+    attachWatchlistRemoveHandlers(strip, strip.dataset.wlSelected);
+  });
 }
 
 // ─── Watchlist helpers ─────────────────────────────────────────────────
