@@ -802,6 +802,48 @@ const I18N = {
     theme: 'Тема', theme_hint: 'Авто — по системе/Telegram',
     theme_auto: 'Авто', theme_dark: 'Тёмная', theme_light: 'Светлая',
     about: 'О приложении',
+    settings_loading: 'Загрузка настроек…',
+    settings_loading_sub: 'Бот ещё не отправлял snapshot. Подождите ~1 минуту.',
+    sec_price_floor: '💎 Цена и Floor',
+    s_min_price: 'Мин. цена TON',
+    s_max_price: 'Макс. цена TON',
+    s_floor_tol: 'Допуск над Floor, %',
+    s_floor_tol_hint: 'Лот считается выгодным, если price ≤ floor × (1 + допуск).',
+    s_min_disc: 'Мин. скидка от Floor, %',
+    s_require_floor: 'Только с известным Floor',
+    s_require_floor_hint: 'Игнорировать лоты, у которых нет floor.',
+    sec_alerts: '🔔 Уведомления',
+    s_alerts_on: 'Все уведомления',
+    s_quiet_start: 'Тихие часы — старт (UTC)',
+    s_quiet_end: 'Тихие часы — конец (UTC)',
+    s_max_alerts: 'Лимит алертов на цикл',
+    s_max_alerts_hint: '0 = без лимита.',
+    s_recent_rare: 'Режим «Редкие свежие»',
+    s_recent_rare_hint: 'Алертить даже если цена выше floor — но только если у лота редкий атрибут (≤ порога).',
+    s_recent_rare_pm: 'Порог редкости (‰)',
+    sec_filters: '🎯 Фильтры',
+    s_markets_label: 'Маркеты',
+    s_markets_hint: 'Только эти маркеты будут попадать в алерт.',
+    s_number_filters: 'Фильтры по номеру',
+    s_number_filters_hint: 'Алертить только номера, попадающие в выбранные категории.',
+    s_mono_only: 'Только монохром',
+    s_max_rarity: 'Макс. rarity (‰), 0=выкл',
+    s_max_rarity_hint: 'Алертить только если у лота есть атрибут редкости ≤ этого значения.',
+    sec_watchlist: '👁 Watchlist',
+    s_watchlist_hint: 'Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.',
+    wl_gifts: '🎁 Подарки', wl_models: '🪄 Модели', wl_backdrops: '🌅 Фоны',
+    wl_empty: 'пусто', wl_no_results: 'ничего не найдено', wl_search_ph: 'Поиск',
+    sec_floor_drop: '📉 Падение Floor',
+    s_floor_drop_alert: 'Алерт при падении floor',
+    s_floor_drop_alert_hint: 'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.',
+    s_floor_drop_pct: 'Порог падения, %',
+    sec_tools: '🛠 Инструменты',
+    s_test_alert: 'Тестовое уведомление',
+    s_test_alert_hint: 'Бот пришлёт сообщение, чтобы проверить канал доставки.',
+    btn_send: '📤 Отправить',
+    s_reset: 'Сбросить настройки',
+    s_reset_hint: 'Вернуть все поля к значениям по умолчанию.',
+    btn_reset: '↺ Сбросить',
   },
   en: {
     title: 'Gift Monitor',
@@ -841,6 +883,48 @@ const I18N = {
     theme: 'Theme', theme_hint: 'Auto follows system / Telegram',
     theme_auto: 'Auto', theme_dark: 'Dark', theme_light: 'Light',
     about: 'About',
+    settings_loading: 'Loading settings…',
+    settings_loading_sub: 'Bot has not sent a snapshot yet. Please wait ~1 minute.',
+    sec_price_floor: '💎 Price & Floor',
+    s_min_price: 'Min price TON',
+    s_max_price: 'Max price TON',
+    s_floor_tol: 'Floor tolerance, %',
+    s_floor_tol_hint: 'A lot counts as a deal when price ≤ floor × (1 + tolerance).',
+    s_min_disc: 'Min discount from floor, %',
+    s_require_floor: 'Only items with known floor',
+    s_require_floor_hint: 'Ignore lots without a floor.',
+    sec_alerts: '🔔 Alerts',
+    s_alerts_on: 'All alerts',
+    s_quiet_start: 'Quiet hours — start (UTC)',
+    s_quiet_end: 'Quiet hours — end (UTC)',
+    s_max_alerts: 'Alerts per cycle limit',
+    s_max_alerts_hint: '0 = unlimited.',
+    s_recent_rare: '"Recent rare" mode',
+    s_recent_rare_hint: 'Alert even if price > floor — but only when the lot has a rare attribute (≤ threshold).',
+    s_recent_rare_pm: 'Rarity threshold (‰)',
+    sec_filters: '🎯 Filters',
+    s_markets_label: 'Markets',
+    s_markets_hint: 'Only these markets will trigger alerts.',
+    s_number_filters: 'Number filters',
+    s_number_filters_hint: 'Alert only numbers matching selected categories.',
+    s_mono_only: 'Monochrome only',
+    s_max_rarity: 'Max rarity (‰), 0=off',
+    s_max_rarity_hint: 'Alert only if the lot has a rarity attribute ≤ this value.',
+    sec_watchlist: '👁 Watchlist',
+    s_watchlist_hint: 'Any new lot in the gifts, models or backdrops below alerts instantly, even if price is above floor.',
+    wl_gifts: '🎁 Gifts', wl_models: '🪄 Models', wl_backdrops: '🌅 Backdrops',
+    wl_empty: 'empty', wl_no_results: 'nothing found', wl_search_ph: 'Search',
+    sec_floor_drop: '📉 Floor drops',
+    s_floor_drop_alert: 'Alert on floor drops',
+    s_floor_drop_alert_hint: 'Bot compares floor every 60 sec and alerts when it drops by N% — a strong buy signal.',
+    s_floor_drop_pct: 'Drop threshold, %',
+    sec_tools: '🛠 Tools',
+    s_test_alert: 'Test alert',
+    s_test_alert_hint: 'Bot will send a message to verify the delivery channel.',
+    btn_send: '📤 Send',
+    s_reset: 'Reset settings',
+    s_reset_hint: 'Restore all fields to default values.',
+    btn_reset: '↺ Reset',
   },
 };
 const t = (k) => (I18N[state.lang] && I18N[state.lang][k]) || I18N.ru[k] || k;
@@ -1628,43 +1712,43 @@ function renderSettings() {
   const s = currentSettings();
   if (!s) {
     pane.innerHTML = `<div class="empty"><div class="e-emoji">⏳</div>
-        <div class="e-title">Загрузка настроек…</div>
-        <div class="e-sub">Бот ещё не отправлял snapshot. Подождите ~1 минуту.</div></div>`;
+        <div class="e-title">${t('settings_loading')}</div>
+        <div class="e-sub">${t('settings_loading_sub')}</div></div>`;
     return;
   }
 
   pane.innerHTML = `
     <div class="setting-section">
-      <h3>💎 Цена и Floor</h3>
-      ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
-      ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
-      ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
-        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
-      ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
-      ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
-        'Игнорировать лоты, у которых нет floor.')}
+      <h3>${t('sec_price_floor')}</h3>
+      ${stepperRow(t('s_min_price'), 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
+      ${stepperRow(t('s_max_price'), 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${stepperRow(t('s_floor_tol'), 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
+        t('s_floor_tol_hint'))}
+      ${stepperRow(t('s_min_disc'), 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
+      ${toggleRow(t('s_require_floor'), 'require_floor', s.require_floor,
+        t('s_require_floor_hint'))}
     </div>
 
     <div class="setting-section">
-      <h3>🔔 Уведомления</h3>
-      ${toggleRow('Все уведомления', 'notifications_on', s.notifications_on)}
+      <h3>${t('sec_alerts')}</h3>
+      ${toggleRow(t('s_alerts_on'), 'notifications_on', s.notifications_on)}
       ${toggleRow('🟣 MRKT', 'mrkt_alerts_on', s.mrkt_alerts_on)}
       ${toggleRow('🔵 Fragment', 'fragment_alerts_on', s.fragment_alerts_on)}
       ${toggleRow('🟢 Portals', 'portals_alerts_on', s.portals_alerts_on)}
-      ${stepperRow('Тихие часы — старт (UTC)', 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
-      ${stepperRow('Тихие часы — конец (UTC)', 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
-      ${stepperRow('Лимит алертов на цикл', 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
-        '0 = без лимита.')}
-      ${toggleRow('Режим «Редкие свежие»', 'recent_rare_mode', s.recent_rare_mode,
-        'Алертить даже если цена выше floor — но только если у лота редкий атрибут (≤ порога).')}
-      ${stepperRow('Порог редкости (‰)', 'recent_rare_pm', s.recent_rare_pm, 0, 100, 0.5)}
+      ${stepperRow(t('s_quiet_start'), 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
+      ${stepperRow(t('s_quiet_end'), 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
+      ${stepperRow(t('s_max_alerts'), 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
+        t('s_max_alerts_hint'))}
+      ${toggleRow(t('s_recent_rare'), 'recent_rare_mode', s.recent_rare_mode,
+        t('s_recent_rare_hint'))}
+      ${stepperRow(t('s_recent_rare_pm'), 'recent_rare_pm', s.recent_rare_pm, 0, 100, 0.5)}
     </div>
 
     <div class="setting-section">
-      <h3>🎯 Фильтры</h3>
+      <h3>${t('sec_filters')}</h3>
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Маркеты</div>
-        <div class="setting-hint">Только эти маркеты будут попадать в алерт.</div>
+        <div class="setting-name">${t('s_markets_label')}</div>
+        <div class="setting-hint">${t('s_markets_hint')}</div>
       </div>
       <div class="multi-pills">
         ${MARKETS.map(m => `
@@ -1674,8 +1758,8 @@ function renderSettings() {
       </div>
 
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Фильтры по номеру</div>
-        <div class="setting-hint">Алертить только номера, попадающие в выбранные категории.</div>
+        <div class="setting-name">${t('s_number_filters')}</div>
+        <div class="setting-hint">${t('s_number_filters_hint')}</div>
       </div>
       <div class="multi-pills">
         ${NUMBER_FILTERS.map(n => `
@@ -1684,43 +1768,43 @@ function renderSettings() {
         `).join('')}
       </div>
 
-      ${toggleRow('Только монохром', 'monochrome_only', s.monochrome_only)}
-      ${stepperRow('Макс. rarity (‰), 0=выкл', 'max_rarity_pm', s.max_rarity_pm, 0, 100, 0.5,
-        'Алертить только если у лота есть атрибут редкости ≤ этого значения.')}
+      ${toggleRow(t('s_mono_only'), 'monochrome_only', s.monochrome_only)}
+      ${stepperRow(t('s_max_rarity'), 'max_rarity_pm', s.max_rarity_pm, 0, 100, 0.5,
+        t('s_max_rarity_hint'))}
     </div>
 
     <div class="setting-section">
-      <h3>👁 Watchlist</h3>
+      <h3>${t('sec_watchlist')}</h3>
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.</div>
+        <div class="setting-name">${t('s_watchlist_hint')}</div>
       </div>
-      ${watchlistChips('🎁 Подарки', 'watchlist_names', 'name', s.watchlist_names)}
-      ${watchlistChips('🪄 Модели', 'watchlist_models', 'model_name', s.watchlist_models)}
-      ${watchlistChips('🌅 Фоны', 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
+      ${watchlistChips(t('wl_gifts'), 'watchlist_names', 'name', s.watchlist_names)}
+      ${watchlistChips(t('wl_models'), 'watchlist_models', 'model_name', s.watchlist_models)}
+      ${watchlistChips(t('wl_backdrops'), 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
     </div>
 
     <div class="setting-section">
-      <h3>📉 Падение Floor</h3>
-      ${toggleRow('Алерт при падении floor', 'floor_drop_alert', s.floor_drop_alert,
-        'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.')}
-      ${stepperRow('Порог падения, %', 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
+      <h3>${t('sec_floor_drop')}</h3>
+      ${toggleRow(t('s_floor_drop_alert'), 'floor_drop_alert', s.floor_drop_alert,
+        t('s_floor_drop_alert_hint'))}
+      ${stepperRow(t('s_floor_drop_pct'), 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
     </div>
 
     <div class="setting-section">
-      <h3>🛠 Инструменты</h3>
+      <h3>${t('sec_tools')}</h3>
       <div class="setting">
         <div class="setting-label">
-          <span class="setting-name">Тестовое уведомление</span>
-          <span class="setting-hint">Бот пришлёт сообщение, чтобы проверить канал доставки.</span>
+          <span class="setting-name">${t('s_test_alert')}</span>
+          <span class="setting-hint">${t('s_test_alert_hint')}</span>
         </div>
-        <button class="btn-action" onclick="sendTestAlert()">📤 Отправить</button>
+        <button class="btn-action" onclick="sendTestAlert()">${t('btn_send')}</button>
       </div>
       <div class="setting">
         <div class="setting-label">
-          <span class="setting-name">Сбросить настройки</span>
-          <span class="setting-hint">Вернуть все поля к значениям по умолчанию.</span>
+          <span class="setting-name">${t('s_reset')}</span>
+          <span class="setting-hint">${t('s_reset_hint')}</span>
         </div>
-        <button class="btn-action danger" onclick="resetSettings()">↺ Сбросить</button>
+        <button class="btn-action danger" onclick="resetSettings()">${t('btn_reset')}</button>
       </div>
     </div>
 
@@ -1840,9 +1924,9 @@ function watchlistChips(label, key, field, selected) {
       <div class="watchlist-selected" data-wl-selected="${key}">
         ${[...sel].map(v => `
           <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
-        `).join('') || '<span class="setting-hint">пусто</span>'}
+        `).join('') || `<span class="setting-hint">${t('wl_empty')}</span>`}
       </div>
-      <input class="wl-search" type="text" placeholder="Поиск ${label.toLowerCase()}…"
+      <input class="wl-search" type="text" placeholder="${t('wl_search_ph')} ${label.toLowerCase()}…"
              data-wl-search="${key}" data-wl-field="${field}" />
       <div class="watchlist-options" data-wl-list="${key}">
         ${renderWatchlistOptions(field, key, sel, '')}
@@ -1858,7 +1942,7 @@ function renderWatchlistOptions(field, key, selectedSet, query) {
   return all.slice(0, 30).map(([v, n]) => {
     const on = selectedSet.has(v);
     return `<span class="pill${on ? ' active' : ''}" data-wl-add="${key}" data-val="${escAttr(v)}">${v} · ${n}</span>`;
-  }).join('') || '<span class="setting-hint">ничего не найдено</span>';
+  }).join('') || `<span class="setting-hint">${t('wl_no_results')}</span>`;
 }
 
 function attachWatchlistOptionHandlers(list, key, field) {
@@ -1874,7 +1958,7 @@ function attachWatchlistOptionHandlers(list, key, field) {
       const sel = new Set(currentSettings()[key] || []);
       selStrip.innerHTML = [...sel].map(v => `
         <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
-      `).join('') || '<span class="setting-hint">пусто</span>';
+      `).join('') || `<span class="setting-hint">${t('wl_empty')}</span>`;
       attachWatchlistRemoveHandlers(selStrip, key);
       tg?.HapticFeedback?.selectionChanged();
     };
@@ -1925,9 +2009,15 @@ function resetSettings() {
     $('#save-bar').style.display = '';
     if (typeof updateMainButton === 'function') updateMainButton();
   };
-  // tg.showConfirm лучше работает в Telegram WebView чем браузерный confirm().
-  if (tg?.showConfirm) tg.showConfirm(t('reset_confirm'), (ok) => { if (ok) apply(); });
+  // Inside real Telegram → use native popup; otherwise window.confirm.
+  // Outside Telegram (e.g. plain browser) the SDK shim defines tg.showConfirm but
+  // it never invokes the callback, so we must detect with tg.initData.
+  if (isInTelegram() && tg.showConfirm) tg.showConfirm(t('reset_confirm'), (ok) => { if (ok) apply(); });
   else if (window.confirm(t('reset_confirm'))) apply();
+}
+
+function isInTelegram() {
+  return !!(tg && tg.initData && tg.platform && tg.platform !== 'unknown');
 }
 
 function currentSettings() {
