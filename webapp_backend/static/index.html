@@ -9,16 +9,16 @@
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 <style>
   :root {
-    --bg: var(--tg-theme-bg-color, #0f1217);
+    --bg: #0f1217;
     --bg-2: #14181f;
-    --fg: var(--tg-theme-text-color, #f5f7fa);
-    --fg-dim: var(--tg-theme-hint-color, #8a93a3);
+    --fg: #f5f7fa;
+    --fg-dim: #8a93a3;
     --fg-soft: rgba(255,255,255,.7);
-    --card: var(--tg-theme-secondary-bg-color, #1a1f29);
+    --card: #1a1f29;
     --card-h: #232936;
     --line: rgba(255,255,255,.07);
-    --accent: var(--tg-theme-button-color, #4ea1ff);
-    --accent-fg: var(--tg-theme-button-text-color, #ffffff);
+    --accent: #4ea1ff;
+    --accent-fg: #ffffff;
     --good: #34c77c;
     --good-bg: rgba(52,199,124,.12);
     --warn: #f7b955;
@@ -28,6 +28,38 @@
     --fragment: #4ea1ff;
     --radius: 14px;
     --radius-lg: 18px;
+    --shadow-card: 0 1px 0 rgba(0,0,0,.2);
+    --shadow-pop: 0 12px 32px rgba(0,0,0,.5);
+    --header-bg: linear-gradient(to bottom, var(--bg) 70%, rgba(15,18,23,.85) 100%);
+  }
+  /* Light theme: применяется когда [data-theme="light"] стоит на html */
+  html[data-theme="light"] {
+    --bg: #f4f5f8;
+    --bg-2: #ffffff;
+    --fg: #11161e;
+    --fg-dim: #6b7280;
+    --fg-soft: rgba(17,22,30,.7);
+    --card: #ffffff;
+    --card-h: #eef0f5;
+    --line: rgba(0,0,0,.07);
+    --accent: #2563eb;
+    --accent-fg: #ffffff;
+    --good: #15a36b;
+    --good-bg: rgba(21,163,107,.12);
+    --warn: #d97706;
+    --bad: #dc2626;
+    --shadow-card: 0 1px 2px rgba(0,0,0,.06);
+    --shadow-pop: 0 12px 32px rgba(0,0,0,.18);
+    --header-bg: linear-gradient(to bottom, var(--bg) 70%, rgba(244,245,248,.8) 100%);
+  }
+  /* Если открыто из Telegram — берём цвета из themeParams */
+  html[data-theme="tg"] {
+    --bg: var(--tg-theme-bg-color, #0f1217);
+    --fg: var(--tg-theme-text-color, #f5f7fa);
+    --fg-dim: var(--tg-theme-hint-color, #8a93a3);
+    --card: var(--tg-theme-secondary-bg-color, #1a1f29);
+    --accent: var(--tg-theme-button-color, #4ea1ff);
+    --accent-fg: var(--tg-theme-button-text-color, #ffffff);
   }
 
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -44,27 +76,61 @@
 
   header {
     position: sticky; top: 0; z-index: 10;
-    background: linear-gradient(to bottom, var(--bg) 80%, transparent);
+    background: var(--header-bg);
     padding: 14px 16px 8px;
     display: flex; flex-direction: column; gap: 10px;
+    transition: backdrop-filter .15s, background .15s;
+  }
+  header.scrolled {
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    background: color-mix(in srgb, var(--bg) 85%, transparent);
+    box-shadow: 0 1px 0 var(--line);
   }
   .head-row {
     display: flex; align-items: center; justify-content: space-between; gap: 8px;
   }
+  .head-actions { display: flex; align-items: center; gap: 6px; }
   h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em;
        display: flex; align-items: center; gap: 8px; }
   .badge-count {
     font-size: 11px; font-weight: 600; color: var(--fg-dim);
     background: var(--card); padding: 3px 9px; border-radius: 99px;
   }
+  .live-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--fg-dim); margin-left: 4px;
+    transition: background .25s;
+  }
+  .live-dot.fresh { background: var(--good); box-shadow: 0 0 0 0 rgba(52,199,124,.55);
+                    animation: live-pulse 1.6s ease-out infinite; }
+  .live-dot.stale { background: var(--warn); }
+  .live-dot.dead  { background: var(--bad); }
+  @keyframes live-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(52,199,124,.55); }
+    70%  { box-shadow: 0 0 0 10px rgba(52,199,124,0); }
+    100% { box-shadow: 0 0 0 0 rgba(52,199,124,0); }
+  }
   .iconbtn {
     background: var(--card); color: var(--fg); border: none;
     width: 34px; height: 34px; border-radius: 10px;
     display: inline-flex; align-items: center; justify-content: center;
     cursor: pointer; transition: background .15s, transform .1s;
+    font-size: 16px;
   }
   .iconbtn:hover { background: var(--card-h); }
   .iconbtn:active { transform: scale(.93); }
+  .iconbtn.spin svg, .iconbtn.spin { animation: spin 0.6s linear; }
+  @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+  /* Per-market status dots near MRKT/Portals/Fragment pills */
+  .pill .market-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--fg-dim); flex: none;
+  }
+  .pill .market-dot.fresh { background: var(--good); }
+  .pill .market-dot.stale { background: var(--warn); }
+  .pill .market-dot.dead  { background: var(--bad); }
 
   .tabs { display: flex; gap: 4px; background: var(--card); padding: 4px;
           border-radius: 12px; align-self: stretch; }
@@ -406,6 +472,9 @@
     transition: transform .12s;
   }
   .modal-cta:active { transform: scale(.98); }
+  .modal-actions .modal-cta { padding: 12px; font-size: 14px; }
+  .lang-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .lang-row .pill { cursor: pointer; }
   .close-x {
     position: absolute; top: 14px; right: 14px;
     background: rgba(255,255,255,.1); color: var(--fg);
@@ -437,66 +506,197 @@
   }
   @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
   .skel-card { height: 96px; border-radius: var(--radius); }
+
+  /* Hot deals stripe */
+  .hotdeals-strip {
+    display: none; gap: 8px; padding: 4px 0 4px;
+    overflow-x: auto; scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
+  }
+  .hotdeals-strip.show { display: flex; }
+  .hotdeals-strip::-webkit-scrollbar { height: 4px; }
+  .hotdeals-card {
+    flex: 0 0 78%; max-width: 320px; min-width: 230px;
+    scroll-snap-align: start;
+    background: linear-gradient(135deg, rgba(52,199,124,.18), rgba(52,199,124,.04));
+    border: 1px solid rgba(52,199,124,.4);
+    border-radius: var(--radius);
+    padding: 10px 12px; cursor: pointer;
+    display: flex; gap: 10px; align-items: center;
+    transition: transform .12s, border-color .15s;
+  }
+  .hotdeals-card:active { transform: scale(.98); }
+  .hotdeals-card .hd-thumb {
+    width: 48px; height: 48px; border-radius: 10px; flex: none;
+    background: var(--card); display: flex; align-items: center; justify-content: center;
+    overflow: hidden; font-size: 22px;
+  }
+  .hotdeals-card .hd-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .hotdeals-card .hd-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+  .hotdeals-card .hd-title { font-weight: 600; font-size: 13.5px; line-height: 1.2;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hotdeals-card .hd-line {
+    display: flex; gap: 6px; align-items: baseline; font-size: 12px;
+  }
+  .hotdeals-card .hd-disc {
+    background: var(--good); color: #fff; font-weight: 700;
+    padding: 1px 7px; border-radius: 99px; font-size: 11px;
+  }
+  .hotdeals-title-row {
+    display: flex; align-items: center; gap: 6px; padding: 0 0 4px;
+    font-size: 12px; font-weight: 700; color: var(--fg-dim);
+    text-transform: uppercase; letter-spacing: .05em;
+  }
+
+  /* FAB Scroll-to-top */
+  .fab-top {
+    position: fixed; right: 16px; bottom: 70px; z-index: 50;
+    width: 44px; height: 44px; border-radius: 50%;
+    background: var(--accent); color: var(--accent-fg);
+    border: none; cursor: pointer;
+    display: none; align-items: center; justify-content: center;
+    font-size: 20px; box-shadow: 0 6px 20px rgba(78,161,255,.35);
+    transition: transform .15s, opacity .2s;
+    opacity: 0;
+  }
+  .fab-top.show { display: flex; opacity: 1; }
+  .fab-top:active { transform: scale(.9); }
+
+  /* Favorites heart on cards */
+  .fav-btn {
+    position: absolute; top: 8px; right: 8px;
+    width: 30px; height: 30px; border-radius: 50%;
+    background: rgba(0,0,0,.35); color: rgba(255,255,255,.9);
+    border: none; cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .15s, transform .12s, color .15s;
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+  }
+  html[data-theme="light"] .fav-btn { background: rgba(255,255,255,.6); color: rgba(17,22,30,.7); }
+  .fav-btn:active { transform: scale(.85); }
+  .fav-btn.on { background: rgba(255,80,120,.92); color: #fff; }
+  .fav-btn.on:active { transform: scale(.85); }
+
+  /* Compact list view (toggleable) */
+  body.view-compact .card { padding: 8px 10px; gap: 10px; }
+  body.view-compact .thumb { width: 44px; height: 44px; border-radius: 9px; font-size: 18px; }
+  body.view-compact .title { font-size: 13.5px; }
+  body.view-compact .meta { font-size: 11.5px; }
+  body.view-compact .price { font-size: 14.5px; }
+  body.view-compact .badges { display: none; }
+  body.view-compact .fav-btn { width: 26px; height: 26px; font-size: 12px; }
+
+  /* Sync indicator on settings */
+  .sync-banner {
+    margin: 4px 12px 0; padding: 10px 14px; border-radius: 12px;
+    background: rgba(247,185,85,.14); color: var(--warn);
+    border: 1px solid rgba(247,185,85,.35);
+    font-size: 12.5px; line-height: 1.45; display: none; gap: 8px; align-items: center;
+  }
+  .sync-banner.show { display: flex; }
+  .sync-banner.ok { color: var(--good); background: rgba(52,199,124,.1); border-color: rgba(52,199,124,.3); }
+
+  /* Sparkline mini-chart in modal */
+  .sparkline-wrap {
+    margin: 14px 0 6px; padding: 12px 14px;
+    background: var(--card); border-radius: 14px;
+  }
+  .sparkline-wrap .sl-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 12px; color: var(--fg-dim); margin-bottom: 6px;
+  }
+  .sparkline-wrap .sl-head b { color: var(--fg); font-size: 13px; }
+  .sparkline svg { display: block; width: 100%; height: 60px; }
+
+  /* Modal action row (share, copy) */
+  .modal-actions {
+    display: flex; gap: 8px; margin-top: 10px;
+  }
+  .modal-actions .btn-action { flex: 1; text-align: center; }
+
+  /* Clear-all-filters button */
+  .clear-all {
+    background: transparent; color: var(--fg-dim); border: 1px dashed var(--line);
+    border-radius: 99px; padding: 6px 11px; font-size: 12.5px; font-weight: 500;
+    cursor: pointer; display: none;
+  }
+  .clear-all.show { display: inline-flex; align-items: center; gap: 4px; }
+  .clear-all:active { transform: scale(.94); }
 </style>
 </head>
 <body>
 
-<header>
+<header id="page-header">
   <div class="head-row">
-    <h1>🎁 Gift Monitor <span class="badge-count" id="cnt">0</span></h1>
-    <button class="iconbtn" id="refresh-btn" title="Обновить" aria-label="Обновить">↻</button>
+    <h1>🎁 <span data-i18n="title">Gift Monitor</span>
+      <span class="badge-count" id="cnt">0</span>
+      <span class="live-dot" id="live-dot" title=""></span>
+    </h1>
+    <div class="head-actions">
+      <button class="iconbtn" id="view-btn" title="Compact view" aria-label="View mode">▤</button>
+      <button class="iconbtn" id="theme-btn" title="Theme" aria-label="Theme">🌙</button>
+      <button class="iconbtn" id="refresh-btn" title="Refresh" aria-label="Refresh">↻</button>
+    </div>
   </div>
   <div class="tabs">
-    <div class="tab active" data-tab="feed">📊 Лента</div>
-    <div class="tab" data-tab="settings">⚙️ Настройки</div>
+    <div class="tab active" data-tab="feed">📊 <span data-i18n="tab_feed">Лента</span></div>
+    <div class="tab" data-tab="settings">⚙️ <span data-i18n="tab_settings">Настройки</span></div>
   </div>
 
   <div id="feed-controls" class="filters-row" style="display:flex;">
     <div class="searchbar">
-      <input id="q" type="text" placeholder="Поиск (имя или номер)" autocomplete="off" />
+      <input id="q" type="text" data-i18n-placeholder="search_ph" placeholder="Поиск (имя или номер)" autocomplete="off" />
     </div>
-    <select id="sort" aria-label="Сортировка">
-      <option value="ts">⏱ Свежие</option>
-      <option value="discount">💰 Скидка %</option>
-      <option value="price-asc">⬆ Цена</option>
-      <option value="price-desc">⬇ Цена</option>
-      <option value="rarity">💠 Редкость</option>
+    <select id="sort" aria-label="Sort">
+      <option value="ts" data-i18n="sort_ts">⏱ Свежие</option>
+      <option value="discount" data-i18n="sort_discount">💰 Скидка %</option>
+      <option value="price-asc" data-i18n="sort_price_asc">⬆ Цена</option>
+      <option value="price-desc" data-i18n="sort_price_desc">⬇ Цена</option>
+      <option value="rarity" data-i18n="sort_rarity">💠 Редкость</option>
     </select>
   </div>
 
   <div id="feed-filters" class="filters-row">
-    <span class="pill" data-market="all">Все</span>
-    <span class="pill market-mrkt" data-market="mrkt"><span class="dot"></span>MRKT</span>
-    <span class="pill market-portals" data-market="portals"><span class="dot"></span>Portals</span>
-    <span class="pill market-fragment" data-market="fragment"><span class="dot"></span>Fragment</span>
-    <span class="pill" data-flag="below_floor">⬇️ Ниже Floor</span>
-    <span class="pill" data-flag="new">✨ Новые 5 мин</span>
-    <span class="pill" data-flag="rare5">💠 Ультра-редкие</span>
+    <span class="pill" data-market="all" data-i18n="filter_all">Все</span>
+    <span class="pill market-mrkt" data-market="mrkt"><span class="market-dot" data-mkt-dot="mrkt"></span>MRKT</span>
+    <span class="pill market-portals" data-market="portals"><span class="market-dot" data-mkt-dot="portals"></span>Portals</span>
+    <span class="pill market-fragment" data-market="fragment"><span class="market-dot" data-mkt-dot="fragment"></span>Fragment</span>
+    <span class="pill" data-flag="favorites" data-i18n="filter_fav">⭐ Избранное</span>
+    <span class="pill" data-flag="below_floor" data-i18n="filter_below_floor">⬇️ Ниже Floor</span>
+    <span class="pill" data-flag="new" data-i18n="filter_new">✨ Новые 5 мин</span>
+    <span class="pill" data-flag="rare5" data-i18n="filter_rare5">💠 Ультра-редкие</span>
     <span class="pill" data-flag="lucky777">🍀 #777</span>
-    <span class="pill" data-flag="round">⭕ Круглые</span>
-    <span class="pill" data-flag="palindrome">🔄 Палиндром</span>
-    <span class="pill" data-flag="repeat">🔁 Повтор</span>
+    <span class="pill" data-flag="round" data-i18n="filter_round">⭕ Круглые</span>
+    <span class="pill" data-flag="palindrome" data-i18n="filter_palindrome">🔄 Палиндром</span>
+    <span class="pill" data-flag="repeat" data-i18n="filter_repeat">🔁 Повтор</span>
     <span class="pill" data-flag="sub100">🥇 #&lt;100</span>
-    <span class="pill" data-flag="mono">🎨 Монохром</span>
+    <span class="pill" data-flag="mono" data-i18n="filter_mono">🎨 Монохром</span>
+    <span class="pill" data-flag="discount10" data-i18n="filter_disc10">🔥 Скидка ≥ 10%</span>
     <div class="filter-group">
-      <span class="pill" id="model-pill">🪄 Модель ▾</span>
+      <span class="pill" id="model-pill">🪄 <span data-i18n="filter_model">Модель</span> ▾</span>
       <div class="filter-pop" id="model-pop">
-        <input class="search" type="text" id="model-search" placeholder="Поиск моделей…" />
+        <input class="search" type="text" id="model-search" data-i18n-placeholder="search_models" placeholder="Поиск моделей…" />
         <div id="model-list" class="filters-row" style="width:100%"></div>
       </div>
     </div>
     <div class="filter-group">
-      <span class="pill" id="backdrop-pill">🌅 Фон ▾</span>
+      <span class="pill" id="backdrop-pill">🌅 <span data-i18n="filter_backdrop">Фон</span> ▾</span>
       <div class="filter-pop" id="backdrop-pop">
-        <input class="search" type="text" id="backdrop-search" placeholder="Поиск фонов…" />
+        <input class="search" type="text" id="backdrop-search" data-i18n-placeholder="search_backdrops" placeholder="Поиск фонов…" />
         <div id="backdrop-list" class="filters-row" style="width:100%"></div>
       </div>
     </div>
+    <button class="clear-all" id="clear-all" data-i18n="clear_all">Очистить ×</button>
   </div>
   <div class="scrim" id="scrim"></div>
 </header>
 
 <main id="content">
+  <div id="hotdeals-wrap" style="display:none;">
+    <div class="hotdeals-title-row">🔥 <span data-i18n="hot_deals">Топ-предложения</span></div>
+    <div id="hotdeals" class="hotdeals-strip"></div>
+  </div>
   <div id="skel-list" style="display:none; flex-direction:column; gap:8px;">
     <div class="skeleton skel-card"></div>
     <div class="skeleton skel-card"></div>
@@ -507,20 +707,24 @@
   <div id="cards" style="display:flex; flex-direction:column; gap:8px;"></div>
   <div class="empty" id="empty-state" style="display:none;">
     <div class="e-emoji">📭</div>
-    <div class="e-title">Лента пуста</div>
-    <div class="e-sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
+    <div class="e-title" data-i18n="empty_title">Лента пуста</div>
+    <div class="e-sub" data-i18n="empty_sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
   </div>
 </main>
 
 <footer id="footer">
-  <span id="status-text">Загрузка…</span>
+  <span id="status-text" data-i18n="loading">Загрузка…</span>
 </footer>
 
 <!-- Settings tab content (hidden until activated) -->
 <main id="settings-pane" class="settings" style="display:none;"></main>
 
+<div class="sync-banner" id="sync-banner"></div>
+
+<button class="fab-top" id="fab-top" aria-label="Scroll to top">↑</button>
+
 <div class="save-bar" id="save-bar" style="display:none;">
-  <button class="save-btn" id="save-btn" disabled>Сохранить изменения</button>
+  <button class="save-btn" id="save-btn" disabled data-i18n="save_btn">Сохранить изменения</button>
 </div>
 
 <div class="modal-bg" id="modal-bg" onclick="closeModal(event)">
@@ -535,14 +739,6 @@
 
 <script>
 const tg = window.Telegram?.WebApp;
-if (tg) {
-  tg.ready();
-  tg.expand();
-  tg.disableVerticalSwipes?.();
-  if (tg.themeParams?.bg_color) {
-    document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
-  }
-}
 
 const BACKEND = window.location.origin.includes('http')
   ? window.location.origin
@@ -551,25 +747,265 @@ const BACKEND = window.location.origin.includes('http')
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+// ─── localStorage helpers ─────────────────────────────────
+const LS = {
+  get(key, def) {
+    try {
+      const raw = localStorage.getItem('gm:' + key);
+      if (raw == null) return def;
+      return JSON.parse(raw);
+    } catch (_) { return def; }
+  },
+  set(key, val) {
+    try { localStorage.setItem('gm:' + key, JSON.stringify(val)); }
+    catch (_) { /* private mode */ }
+  },
+};
+
+// ─── i18n ─────────────────────────────────────────────────
+const I18N = {
+  ru: {
+    title: 'Gift Monitor',
+    tab_feed: 'Лента', tab_settings: 'Настройки',
+    search_ph: 'Поиск (имя или номер)',
+    sort_ts: '⏱ Свежие', sort_discount: '💰 Скидка %',
+    sort_price_asc: '⬆ Цена', sort_price_desc: '⬇ Цена', sort_rarity: '💠 Редкость',
+    filter_all: 'Все', filter_fav: '⭐ Избранное', filter_below_floor: '⬇️ Ниже Floor',
+    filter_new: '✨ Новые 5 мин', filter_rare5: '💠 Ультра-редкие',
+    filter_round: '⭕ Круглые', filter_palindrome: '🔄 Палиндром',
+    filter_repeat: '🔁 Повтор', filter_mono: '🎨 Монохром',
+    filter_disc10: '🔥 Скидка ≥ 10%',
+    filter_model: 'Модель', filter_backdrop: 'Фон',
+    search_models: 'Поиск моделей…', search_backdrops: 'Поиск фонов…',
+    clear_all: 'Очистить ×', hot_deals: 'Топ-предложения',
+    empty_title: 'Лента пуста',
+    empty_sub: 'Подождите следующий цикл опроса или ослабьте фильтры.',
+    loading: 'Загрузка…', save_btn: 'Сохранить изменения',
+    of_lots: 'лотов', updated: 'обновлено', ago: 'назад',
+    via_backend: 'через backend', fallback: 'fallback (только Portals)',
+    sync_pending: 'Изменения отправлены боту, ждём подтверждения…',
+    sync_ok: 'Бот подтвердил применение настроек.',
+    copied: '🔗 Ссылка скопирована',
+    test_sent: '📤 Запрос отправлен, бот пришлёт сообщение через ~10 сек',
+    network_err: '❌ Ошибка сети', error: '❌ Ошибка',
+    reset_confirm: 'Сбросить все настройки к значениям по умолчанию?',
+    open_in: 'Открыть в',
+    sec: 'сек', min: 'мин', hour: 'ч', day: 'д',
+    favs_empty: 'Избранное пусто',
+    favs_empty_sub: 'Нажми ⭐ на карточке, чтобы сохранить лот.',
+    stats: 'Статистика',
+    stat_total: 'лотов в ленте', stat_below_floor: 'ниже floor',
+    stat_collections: 'коллекций', stat_models: 'моделей',
+    stat_avg_discount: 'ср. скидка',
+    appearance: 'Оформление', language: 'Язык',
+    language_hint: 'Интерфейс приложения',
+    theme: 'Тема', theme_hint: 'Авто — по системе/Telegram',
+    theme_auto: 'Авто', theme_dark: 'Тёмная', theme_light: 'Светлая',
+    about: 'О приложении',
+    settings_loading: 'Загрузка настроек…',
+    settings_loading_sub: 'Бот ещё не отправлял snapshot. Подождите ~1 минуту.',
+    sec_price_floor: '💎 Цена и Floor',
+    s_min_price: 'Мин. цена TON',
+    s_max_price: 'Макс. цена TON',
+    s_floor_tol: 'Допуск над Floor, %',
+    s_floor_tol_hint: 'Лот считается выгодным, если price ≤ floor × (1 + допуск).',
+    s_min_disc: 'Мин. скидка от Floor, %',
+    s_require_floor: 'Только с известным Floor',
+    s_require_floor_hint: 'Игнорировать лоты, у которых нет floor.',
+    sec_alerts: '🔔 Уведомления',
+    s_alerts_on: 'Все уведомления',
+    s_quiet_start: 'Тихие часы — старт (UTC)',
+    s_quiet_end: 'Тихие часы — конец (UTC)',
+    s_max_alerts: 'Лимит алертов на цикл',
+    s_max_alerts_hint: '0 = без лимита.',
+    s_recent_rare: 'Режим «Редкие свежие»',
+    s_recent_rare_hint: 'Алертить даже если цена выше floor — но только если у лота редкий атрибут (≤ порога).',
+    s_recent_rare_pm: 'Порог редкости (‰)',
+    sec_filters: '🎯 Фильтры',
+    s_markets_label: 'Маркеты',
+    s_markets_hint: 'Только эти маркеты будут попадать в алерт.',
+    s_number_filters: 'Фильтры по номеру',
+    s_number_filters_hint: 'Алертить только номера, попадающие в выбранные категории.',
+    s_mono_only: 'Только монохром',
+    s_max_rarity: 'Макс. rarity (‰), 0=выкл',
+    s_max_rarity_hint: 'Алертить только если у лота есть атрибут редкости ≤ этого значения.',
+    sec_watchlist: '👁 Watchlist',
+    s_watchlist_hint: 'Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.',
+    wl_gifts: '🎁 Подарки', wl_models: '🪄 Модели', wl_backdrops: '🌅 Фоны',
+    wl_empty: 'пусто', wl_no_results: 'ничего не найдено', wl_search_ph: 'Поиск',
+    sec_floor_drop: '📉 Падение Floor',
+    s_floor_drop_alert: 'Алерт при падении floor',
+    s_floor_drop_alert_hint: 'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.',
+    s_floor_drop_pct: 'Порог падения, %',
+    sec_tools: '🛠 Инструменты',
+    s_test_alert: 'Тестовое уведомление',
+    s_test_alert_hint: 'Бот пришлёт сообщение, чтобы проверить канал доставки.',
+    btn_send: '📤 Отправить',
+    s_reset: 'Сбросить настройки',
+    s_reset_hint: 'Вернуть все поля к значениям по умолчанию.',
+    btn_reset: '↺ Сбросить',
+  },
+  en: {
+    title: 'Gift Monitor',
+    tab_feed: 'Feed', tab_settings: 'Settings',
+    search_ph: 'Search (name or number)',
+    sort_ts: '⏱ Fresh', sort_discount: '💰 Discount %',
+    sort_price_asc: '⬆ Price', sort_price_desc: '⬇ Price', sort_rarity: '💠 Rarity',
+    filter_all: 'All', filter_fav: '⭐ Favorites', filter_below_floor: '⬇️ Below floor',
+    filter_new: '✨ New 5 min', filter_rare5: '💠 Ultra-rare',
+    filter_round: '⭕ Round', filter_palindrome: '🔄 Palindrome',
+    filter_repeat: '🔁 Repeats', filter_mono: '🎨 Mono',
+    filter_disc10: '🔥 Discount ≥ 10%',
+    filter_model: 'Model', filter_backdrop: 'Backdrop',
+    search_models: 'Search models…', search_backdrops: 'Search backdrops…',
+    clear_all: 'Clear ×', hot_deals: 'Hot deals',
+    empty_title: 'Feed is empty',
+    empty_sub: 'Wait for the next poll cycle or relax the filters.',
+    loading: 'Loading…', save_btn: 'Save changes',
+    of_lots: 'lots', updated: 'updated', ago: 'ago',
+    via_backend: 'via backend', fallback: 'fallback (Portals only)',
+    sync_pending: 'Changes sent to bot, awaiting confirmation…',
+    sync_ok: 'Bot confirmed settings applied.',
+    copied: '🔗 Link copied',
+    test_sent: '📤 Request sent, bot will reply in ~10 sec',
+    network_err: '❌ Network error', error: '❌ Error',
+    reset_confirm: 'Reset all settings to defaults?',
+    open_in: 'Open in',
+    sec: 's', min: 'm', hour: 'h', day: 'd',
+    favs_empty: 'No favorites yet',
+    favs_empty_sub: 'Tap ⭐ on a card to save it.',
+    stats: 'Stats',
+    stat_total: 'lots in feed', stat_below_floor: 'below floor',
+    stat_collections: 'collections', stat_models: 'models',
+    stat_avg_discount: 'avg discount',
+    appearance: 'Appearance', language: 'Language',
+    language_hint: 'App interface',
+    theme: 'Theme', theme_hint: 'Auto follows system / Telegram',
+    theme_auto: 'Auto', theme_dark: 'Dark', theme_light: 'Light',
+    about: 'About',
+    settings_loading: 'Loading settings…',
+    settings_loading_sub: 'Bot has not sent a snapshot yet. Please wait ~1 minute.',
+    sec_price_floor: '💎 Price & Floor',
+    s_min_price: 'Min price TON',
+    s_max_price: 'Max price TON',
+    s_floor_tol: 'Floor tolerance, %',
+    s_floor_tol_hint: 'A lot counts as a deal when price ≤ floor × (1 + tolerance).',
+    s_min_disc: 'Min discount from floor, %',
+    s_require_floor: 'Only items with known floor',
+    s_require_floor_hint: 'Ignore lots without a floor.',
+    sec_alerts: '🔔 Alerts',
+    s_alerts_on: 'All alerts',
+    s_quiet_start: 'Quiet hours — start (UTC)',
+    s_quiet_end: 'Quiet hours — end (UTC)',
+    s_max_alerts: 'Alerts per cycle limit',
+    s_max_alerts_hint: '0 = unlimited.',
+    s_recent_rare: '"Recent rare" mode',
+    s_recent_rare_hint: 'Alert even if price > floor — but only when the lot has a rare attribute (≤ threshold).',
+    s_recent_rare_pm: 'Rarity threshold (‰)',
+    sec_filters: '🎯 Filters',
+    s_markets_label: 'Markets',
+    s_markets_hint: 'Only these markets will trigger alerts.',
+    s_number_filters: 'Number filters',
+    s_number_filters_hint: 'Alert only numbers matching selected categories.',
+    s_mono_only: 'Monochrome only',
+    s_max_rarity: 'Max rarity (‰), 0=off',
+    s_max_rarity_hint: 'Alert only if the lot has a rarity attribute ≤ this value.',
+    sec_watchlist: '👁 Watchlist',
+    s_watchlist_hint: 'Any new lot in the gifts, models or backdrops below alerts instantly, even if price is above floor.',
+    wl_gifts: '🎁 Gifts', wl_models: '🪄 Models', wl_backdrops: '🌅 Backdrops',
+    wl_empty: 'empty', wl_no_results: 'nothing found', wl_search_ph: 'Search',
+    sec_floor_drop: '📉 Floor drops',
+    s_floor_drop_alert: 'Alert on floor drops',
+    s_floor_drop_alert_hint: 'Bot compares floor every 60 sec and alerts when it drops by N% — a strong buy signal.',
+    s_floor_drop_pct: 'Drop threshold, %',
+    sec_tools: '🛠 Tools',
+    s_test_alert: 'Test alert',
+    s_test_alert_hint: 'Bot will send a message to verify the delivery channel.',
+    btn_send: '📤 Send',
+    s_reset: 'Reset settings',
+    s_reset_hint: 'Restore all fields to default values.',
+    btn_reset: '↺ Reset',
+  },
+};
+const t = (k) => (I18N[state.lang] && I18N[state.lang][k]) || I18N.ru[k] || k;
+function applyI18n() {
+  $$('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  $$('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+}
+
+// ─── State ───────────────────────────────────────────────
 let state = {
   items: [],
   filteredItems: [],
   market: 'all',
-  flags: new Set(),
+  flags: new Set(LS.get('flags', [])),
   search: '',
-  sort: 'ts',
+  sort: LS.get('sort', 'ts'),
   source: 'unknown',
   lastUpdate: 0,
   feedLoading: false,
   settings: null,
   pendingSettings: {},  // local diff
   activeTab: 'feed',
-  modelFilter: new Set(),
-  backdropFilter: new Set(),
+  modelFilter: new Set(LS.get('modelFilter', [])),
+  backdropFilter: new Set(LS.get('backdropFilter', [])),
   domIndex: new Map(),  // id -> { el, key }: persistent DOM nodes for diff render
   newIds: new Set(),    // ids appeared in last refresh (for sparkle filter)
   lastSeenIds: new Set(),
+  favorites: new Set(LS.get('favorites', [])),
+  view: LS.get('view', 'cards'),         // 'cards' | 'compact'
+  theme: LS.get('theme', 'auto'),        // 'auto' | 'dark' | 'light'
+  lang: LS.get('lang', detectLang()),    // 'ru' | 'en'
+  marketStatus: {},                      // { mrkt: {age_sec, count, ...} }
+  syncStatus: 'idle',                    // 'idle' | 'pending' | 'ok'
+  hideHotDeals: LS.get('hideHotDeals', false),
 };
+
+function detectLang() {
+  try {
+    const lc = (tg?.initDataUnsafe?.user?.language_code
+                || navigator.language || 'ru').toLowerCase();
+    return lc.startsWith('ru') ? 'ru' : 'en';
+  } catch (_) { return 'ru'; }
+}
+
+// ─── Theme application ──────────────────────────────────
+function applyTheme() {
+  const html = document.documentElement;
+  const choice = state.theme;
+  let mode;
+  if (choice === 'auto') {
+    if (tg?.colorScheme) mode = 'tg';
+    else mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } else {
+    mode = choice;
+  }
+  if (mode === 'dark') html.removeAttribute('data-theme');
+  else html.setAttribute('data-theme', mode);
+  // Set theme-color meta to current bg
+  const cs = getComputedStyle(html).getPropertyValue('--bg').trim();
+  $('meta[name="theme-color"]')?.setAttribute('content', cs || '#0f1217');
+  // Update theme button label
+  const btn = $('#theme-btn');
+  if (btn) btn.textContent = state.theme === 'light' ? '☀️' :
+                              state.theme === 'dark' ? '🌙' : '🎨';
+}
+
+// Telegram setup (after state/theme defs)
+if (tg) {
+  tg.ready();
+  try { tg.expand(); } catch (_) {}
+  try { tg.disableVerticalSwipes?.(); } catch (_) {}
+  // Re-apply theme when Telegram changes colors.
+  tg.onEvent?.('themeChanged', applyTheme);
+}
+applyTheme();
+applyI18n();
+
+// View mode init
+if (state.view === 'compact') document.body.classList.add('view-compact');
 
 // ──────────────────────────────────────────────────────────
 //  Helpers
@@ -601,11 +1037,13 @@ const debounce = (fn, ms) => {
   };
 };
 const ago = (ts) => {
-  const d = Math.max(0, Math.floor((Date.now() / 1000) - ts));
-  if (d < 60) return d + ' сек';
-  if (d < 3600) return Math.floor(d / 60) + ' мин';
-  if (d < 86400) return Math.floor(d / 3600) + ' ч';
-  return Math.floor(d / 86400) + ' д';
+  // ts задаётся в секундах; lastUpdate хранится в мс — нормализуем.
+  const tsSec = ts > 1e12 ? Math.floor(ts / 1000) : ts;
+  const d = Math.max(0, Math.floor((Date.now() / 1000) - tsSec));
+  if (d < 60) return d + ' ' + t('sec');
+  if (d < 3600) return Math.floor(d / 60) + ' ' + t('min');
+  if (d < 86400) return Math.floor(d / 3600) + ' ' + t('hour');
+  return Math.floor(d / 86400) + ' ' + t('day');
 };
 const isLucky = (n) => String(n) === '777';
 const isRound = (n) => {
@@ -752,6 +1190,7 @@ function applyFilters() {
   const flags = state.flags;
   const models = state.modelFilter;
   const backdrops = state.backdropFilter;
+  const favs = state.favorites;
   const nowTs = Date.now() / 1000;
   state.filteredItems = state.items.filter(it => {
     if (state.market !== 'all' && it.market !== state.market) return false;
@@ -762,7 +1201,9 @@ function applyFilters() {
         .filter(Boolean).join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
+    if (flags.has('favorites') && !favs.has(favKey(it))) return false;
     if (flags.has('below_floor') && discountPct(it) <= 0) return false;
+    if (flags.has('discount10') && discountPct(it) < 10) return false;
     if (flags.has('rare5')) {
       const m = minPm(it);
       if (!m || m > 5) return false;
@@ -777,10 +1218,15 @@ function applyFilters() {
     return true;
   });
 
-  // Sort
+  // Sort. discount-сорт: лоты без скидки/без floor в конце.
+  const discKey = (it) => {
+    const f = it.floor_price ?? it.xfloor;
+    if (!f || !it.price) return -Infinity;
+    return discountPct(it);
+  };
   const cmp = {
     'ts':         (a, b) => (b.ts || 0) - (a.ts || 0),
-    'discount':   (a, b) => discountPct(b) - discountPct(a),
+    'discount':   (a, b) => discKey(b) - discKey(a),
     'price-asc':  (a, b) => (a.price || 0) - (b.price || 0),
     'price-desc': (a, b) => (b.price || 0) - (a.price || 0),
     'rarity':     (a, b) => (minPm(a) ?? 1000) - (minPm(b) ?? 1000),
@@ -788,9 +1234,70 @@ function applyFilters() {
   state.filteredItems.sort(cmp);
 }
 
+function favKey(it) {
+  return `${it.market}:${it.id}`;
+}
+
 function itemKey(it) {
   // Detect any visible change → triggers re-render of that single card.
-  return [it.id, it.price, it.floor_price, it.ts, it.market].join('|');
+  // Включаем favorite-state, чтобы heart перерисовывался без полного DOM-rebuild.
+  return [
+    it.id, it.price, it.floor_price, it.ts, it.market,
+    state.favorites.has(favKey(it)) ? 'F' : '_'
+  ].join('|');
+}
+
+function topDeals(items, n) {
+  return items
+    .filter(it => discountPct(it) >= 25 && it.price)
+    .sort((a, b) => discountPct(b) - discountPct(a))
+    .slice(0, n);
+}
+
+function renderHotDeals() {
+  const wrap = $('#hotdeals-wrap');
+  const strip = $('#hotdeals');
+  if (!wrap || !strip) return;
+  if (state.hideHotDeals || state.activeTab !== 'feed') {
+    wrap.style.display = 'none';
+    return;
+  }
+  const deals = topDeals(state.items, 6);
+  if (!deals.length) {
+    wrap.style.display = 'none';
+    strip.classList.remove('show');
+    return;
+  }
+  strip.replaceChildren(...deals.map(it => {
+    const c = document.createElement('div');
+    c.className = 'hotdeals-card';
+    const dp = discountPct(it);
+    const src = gifImageUrl(it);
+    const thumb = document.createElement('div');
+    thumb.className = 'hd-thumb';
+    if (src) {
+      const img = document.createElement('img');
+      img.loading = 'lazy'; img.src = src; img.alt = '';
+      thumb.appendChild(img);
+    } else { thumb.textContent = '🎁'; }
+    const info = document.createElement('div');
+    info.className = 'hd-info';
+    const title = document.createElement('div');
+    title.className = 'hd-title';
+    title.textContent = `${it.name || '?'} #${it.number ?? '?'}`;
+    const line = document.createElement('div');
+    line.className = 'hd-line';
+    line.innerHTML =
+      `<span class="hd-disc">−${dp.toFixed(0)}%</span>` +
+      `<span><b>${fmtPrice(it.price)}</b> 💎</span>` +
+      `<span style="color:var(--fg-dim); text-decoration:line-through">${fmtPrice(it.floor_price ?? it.xfloor)}</span>`;
+    info.appendChild(title); info.appendChild(line);
+    c.appendChild(thumb); c.appendChild(info);
+    c.addEventListener('click', () => openModal(it));
+    return c;
+  }));
+  wrap.style.display = '';
+  strip.classList.add('show');
 }
 
 function renderFeed() {
@@ -840,15 +1347,34 @@ function renderFeed() {
   m.replaceChildren(...desiredEls);
   state.domIndex = newIndex;
 
+  renderHotDeals();
+  updateStatusText();
+}
+
+function updateStatusText() {
+  const cnt = state.filteredItems.length;
   $('#status-text').innerHTML =
-    `<b>${cnt}</b> / ${state.items.length} лотов · ` +
-    (state.source === 'backend' ? 'через backend' : 'fallback (только Portals)') +
-    ` · обновлено ${ago(state.lastUpdate)} назад`;
+    `<b>${cnt}</b> / ${state.items.length} ${t('of_lots')} · ` +
+    (state.source === 'backend' ? t('via_backend') : t('fallback')) +
+    ` · ${t('updated')} ${ago(state.lastUpdate)} ${t('ago')}`;
+  // Live dot freshness
+  const dot = $('#live-dot');
+  if (dot) {
+    const age = (Date.now() / 1000) - (state.lastUpdate || 0);
+    dot.classList.remove('fresh', 'stale', 'dead');
+    if (!state.lastUpdate) dot.classList.add('dead');
+    else if (age < 12) dot.classList.add('fresh');
+    else if (age < 60) dot.classList.add('stale');
+    else dot.classList.add('dead');
+    dot.title = `${t('updated')} ${ago(state.lastUpdate)} ${t('ago')}`;
+  }
 }
 
 function card(it) {
   const el = document.createElement('div');
   el.className = 'card';
+  el.style.position = 'relative';
+  el.dataset.ts = it.ts || '';
   const dp = discountPct(it);
   if (dp >= 25) el.classList.add('disc-mega');
   else if (dp >= 10) el.classList.add('disc-high');
@@ -872,6 +1398,21 @@ function card(it) {
   } else {
     thumb.classList.add('placeholder');
   }
+
+  // ⭐ Favorites heart
+  const favBtn = document.createElement('button');
+  favBtn.className = 'fav-btn' + (state.favorites.has(favKey(it)) ? ' on' : '');
+  favBtn.type = 'button';
+  favBtn.innerHTML = state.favorites.has(favKey(it)) ? '❤' : '♡';
+  favBtn.title = 'Favorite';
+  favBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleFavorite(it);
+    favBtn.classList.toggle('on');
+    favBtn.innerHTML = state.favorites.has(favKey(it)) ? '❤' : '♡';
+    tg?.HapticFeedback?.impactOccurred('light');
+  });
+  el.appendChild(favBtn);
 
   const info = document.createElement('div');
   info.className = 'info';
@@ -995,16 +1536,128 @@ let openModal = function(it) {
       ${rarityRow('Symbol', it.symbol_name, r.symbol)}
     </div>
 
-    ${it.url
-      ? `<button class="modal-cta" onclick="openLink('${escapeHtml(it.url)}', '${it.market}')">
-          🚀 Открыть в ${(it.market || '').toUpperCase()}
-        </button>`
-      : ''}
+    <div class="sparkline-wrap" id="sparkline-host" style="display:none">
+      <div class="sl-head">
+        <span>📈 Floor history</span>
+        <b id="sparkline-current"></b>
+      </div>
+      <div class="sparkline" id="sparkline"></div>
+    </div>
+
+    <div class="modal-actions">
+      ${it.url
+        ? `<button class="modal-cta" id="modal-open-cta">
+            🚀 ${t('open_in')} ${(it.market || '').toUpperCase()}
+          </button>`
+        : ''}
+      <button class="modal-cta" id="modal-share-cta" style="background:var(--card-h); color:var(--fg)">📤</button>
+      <button class="modal-cta" id="modal-copy-cta" style="background:var(--card-h); color:var(--fg)">📋</button>
+    </div>
   `;
+
+  // Wire CTA via addEventListener — без onclick-инъекции в HTML.
+  if (it.url) {
+    $('#modal-open-cta')?.addEventListener('click', () => openLink(it.url, it.market));
+  }
+  $('#modal-share-cta')?.addEventListener('click', () => shareItem(it));
+  $('#modal-copy-cta')?.addEventListener('click', () => copyItemLink(it));
+
+  // Sparkline (lazy-fetch).
+  loadSparkline(it);
+
   $('#modal-bg').classList.add('open');
   tg?.HapticFeedback?.selectionChanged();
   if (typeof updateBackButton === 'function') updateBackButton();
 };
+
+async function loadSparkline(it) {
+  const name = (it.name || '').trim();
+  if (!name) return;
+  try {
+    const r = await fetch(`${BACKEND}/api/floor-history?name=${encodeURIComponent(name)}&limit=80`);
+    if (!r.ok) return;
+    const j = await r.json();
+    const points = j.points || [];
+    if (points.length < 3) return;
+    const host = $('#sparkline-host');
+    const cur = $('#sparkline-current');
+    const target = $('#sparkline');
+    if (!host || !target) return;
+    const vals = points.map(p => p.floor);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const last = vals[vals.length - 1];
+    const w = 280, h = 60, pad = 4;
+    const xStep = (w - pad * 2) / Math.max(1, points.length - 1);
+    const norm = (v) => max === min ? h / 2 : pad + (h - pad * 2) * (1 - (v - min) / (max - min));
+    const path = vals.map((v, i) => `${i ? 'L' : 'M'}${(pad + i * xStep).toFixed(2)},${norm(v).toFixed(2)}`).join(' ');
+    const area = `${path} L${(pad + (vals.length - 1) * xStep).toFixed(2)},${h - pad} L${pad},${h - pad}Z`;
+    const trend = last <= vals[0] ? '#34c77c' : '#ff5c5c';
+    target.innerHTML = `
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="sl-grad" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%" stop-color="${trend}" stop-opacity=".35"/>
+            <stop offset="100%" stop-color="${trend}" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${area}" fill="url(#sl-grad)" stroke="none"/>
+        <path d="${path}" fill="none" stroke="${trend}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    `;
+    if (cur) {
+      const delta = last - vals[0];
+      const dpct = vals[0] ? (delta / vals[0] * 100) : 0;
+      cur.innerHTML = `${fmtPrice(last)} 💎 ` +
+        `<span style="color:${trend}; font-weight:600">` +
+        `${delta >= 0 ? '+' : ''}${dpct.toFixed(1)}%` +
+        `</span>`;
+    }
+    host.style.display = '';
+  } catch (_) { /* no chart */ }
+}
+
+function shareItem(it) {
+  const url = it.url || '';
+  const title = `${it.name || 'Gift'} #${it.number ?? ''}`;
+  if (tg?.openTelegramLink) {
+    const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(title)}`;
+    tg.openTelegramLink(shareUrl);
+    tg?.HapticFeedback?.impactOccurred('light');
+    return;
+  }
+  if (navigator.share) {
+    navigator.share({ title, url }).catch(() => {});
+    return;
+  }
+  copyItemLink(it);
+}
+
+function copyItemLink(it) {
+  const url = it.url || '';
+  if (!url) return;
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(url).then(
+      () => showToast(t('copied')),
+      () => showToast(t('error')),
+    );
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = url; document.body.appendChild(ta);
+    ta.select(); document.execCommand?.('copy'); ta.remove();
+    showToast(t('copied'));
+  }
+  tg?.HapticFeedback?.impactOccurred('light');
+}
+
+function toggleFavorite(it) {
+  const k = favKey(it);
+  if (state.favorites.has(k)) state.favorites.delete(k);
+  else state.favorites.add(k);
+  LS.set('favorites', [...state.favorites]);
+  // Если активен фильтр "избранное" — сразу пересчитываем ленту.
+  if (state.flags.has('favorites')) renderAll();
+}
 
 let closeModal = function(e) {
   if (e && e.target.id !== 'modal-bg') return;
@@ -1042,48 +1695,60 @@ const MARKETS = [
   { v: 'fragment', l: '🔵 Fragment' },
 ];
 
+function avgDiscountPct() {
+  const ds = state.items
+    .map(it => discountPct(it))
+    .filter(x => Number.isFinite(x) && x > 0);
+  if (!ds.length) return 0;
+  return ds.reduce((a, b) => a + b, 0) / ds.length;
+}
+
+function countByMarket(name) {
+  return state.items.filter(it => it.market === name).length;
+}
+
 function renderSettings() {
   const pane = $('#settings-pane');
   const s = currentSettings();
   if (!s) {
     pane.innerHTML = `<div class="empty"><div class="e-emoji">⏳</div>
-        <div class="e-title">Загрузка настроек…</div>
-        <div class="e-sub">Бот ещё не отправлял snapshot. Подождите ~1 минуту.</div></div>`;
+        <div class="e-title">${t('settings_loading')}</div>
+        <div class="e-sub">${t('settings_loading_sub')}</div></div>`;
     return;
   }
 
   pane.innerHTML = `
     <div class="setting-section">
-      <h3>💎 Цена и Floor</h3>
-      ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
-      ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
-      ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
-        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
-      ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
-      ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
-        'Игнорировать лоты, у которых нет floor.')}
+      <h3>${t('sec_price_floor')}</h3>
+      ${stepperRow(t('s_min_price'), 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
+      ${stepperRow(t('s_max_price'), 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${stepperRow(t('s_floor_tol'), 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
+        t('s_floor_tol_hint'))}
+      ${stepperRow(t('s_min_disc'), 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
+      ${toggleRow(t('s_require_floor'), 'require_floor', s.require_floor,
+        t('s_require_floor_hint'))}
     </div>
 
     <div class="setting-section">
-      <h3>🔔 Уведомления</h3>
-      ${toggleRow('Все уведомления', 'notifications_on', s.notifications_on)}
+      <h3>${t('sec_alerts')}</h3>
+      ${toggleRow(t('s_alerts_on'), 'notifications_on', s.notifications_on)}
       ${toggleRow('🟣 MRKT', 'mrkt_alerts_on', s.mrkt_alerts_on)}
       ${toggleRow('🔵 Fragment', 'fragment_alerts_on', s.fragment_alerts_on)}
       ${toggleRow('🟢 Portals', 'portals_alerts_on', s.portals_alerts_on)}
-      ${stepperRow('Тихие часы — старт (UTC)', 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
-      ${stepperRow('Тихие часы — конец (UTC)', 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
-      ${stepperRow('Лимит алертов на цикл', 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
-        '0 = без лимита.')}
-      ${toggleRow('Режим «Редкие свежие»', 'recent_rare_mode', s.recent_rare_mode,
-        'Алертить даже если цена выше floor — но только если у лота редкий атрибут (≤ порога).')}
-      ${stepperRow('Порог редкости (‰)', 'recent_rare_pm', s.recent_rare_pm, 0, 100, 0.5)}
+      ${stepperRow(t('s_quiet_start'), 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
+      ${stepperRow(t('s_quiet_end'), 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
+      ${stepperRow(t('s_max_alerts'), 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
+        t('s_max_alerts_hint'))}
+      ${toggleRow(t('s_recent_rare'), 'recent_rare_mode', s.recent_rare_mode,
+        t('s_recent_rare_hint'))}
+      ${stepperRow(t('s_recent_rare_pm'), 'recent_rare_pm', s.recent_rare_pm, 0, 100, 0.5)}
     </div>
 
     <div class="setting-section">
-      <h3>🎯 Фильтры</h3>
+      <h3>${t('sec_filters')}</h3>
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Маркеты</div>
-        <div class="setting-hint">Только эти маркеты будут попадать в алерт.</div>
+        <div class="setting-name">${t('s_markets_label')}</div>
+        <div class="setting-hint">${t('s_markets_hint')}</div>
       </div>
       <div class="multi-pills">
         ${MARKETS.map(m => `
@@ -1093,8 +1758,8 @@ function renderSettings() {
       </div>
 
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Фильтры по номеру</div>
-        <div class="setting-hint">Алертить только номера, попадающие в выбранные категории.</div>
+        <div class="setting-name">${t('s_number_filters')}</div>
+        <div class="setting-hint">${t('s_number_filters_hint')}</div>
       </div>
       <div class="multi-pills">
         ${NUMBER_FILTERS.map(n => `
@@ -1103,58 +1768,87 @@ function renderSettings() {
         `).join('')}
       </div>
 
-      ${toggleRow('Только монохром', 'monochrome_only', s.monochrome_only)}
-      ${stepperRow('Макс. rarity (‰), 0=выкл', 'max_rarity_pm', s.max_rarity_pm, 0, 100, 0.5,
-        'Алертить только если у лота есть атрибут редкости ≤ этого значения.')}
+      ${toggleRow(t('s_mono_only'), 'monochrome_only', s.monochrome_only)}
+      ${stepperRow(t('s_max_rarity'), 'max_rarity_pm', s.max_rarity_pm, 0, 100, 0.5,
+        t('s_max_rarity_hint'))}
     </div>
 
     <div class="setting-section">
-      <h3>👁 Watchlist</h3>
+      <h3>${t('sec_watchlist')}</h3>
       <div class="setting" style="flex-direction:column; align-items:flex-start;">
-        <div class="setting-name">Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.</div>
+        <div class="setting-name">${t('s_watchlist_hint')}</div>
       </div>
-      ${watchlistChips('🎁 Подарки', 'watchlist_names', 'name', s.watchlist_names)}
-      ${watchlistChips('🪄 Модели', 'watchlist_models', 'model_name', s.watchlist_models)}
-      ${watchlistChips('🌅 Фоны', 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
+      ${watchlistChips(t('wl_gifts'), 'watchlist_names', 'name', s.watchlist_names)}
+      ${watchlistChips(t('wl_models'), 'watchlist_models', 'model_name', s.watchlist_models)}
+      ${watchlistChips(t('wl_backdrops'), 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
     </div>
 
     <div class="setting-section">
-      <h3>📉 Падение Floor</h3>
-      ${toggleRow('Алерт при падении floor', 'floor_drop_alert', s.floor_drop_alert,
-        'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.')}
-      ${stepperRow('Порог падения, %', 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
+      <h3>${t('sec_floor_drop')}</h3>
+      ${toggleRow(t('s_floor_drop_alert'), 'floor_drop_alert', s.floor_drop_alert,
+        t('s_floor_drop_alert_hint'))}
+      ${stepperRow(t('s_floor_drop_pct'), 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
     </div>
 
     <div class="setting-section">
-      <h3>🛠 Инструменты</h3>
+      <h3>${t('sec_tools')}</h3>
       <div class="setting">
         <div class="setting-label">
-          <span class="setting-name">Тестовое уведомление</span>
-          <span class="setting-hint">Бот пришлёт сообщение, чтобы проверить канал доставки.</span>
+          <span class="setting-name">${t('s_test_alert')}</span>
+          <span class="setting-hint">${t('s_test_alert_hint')}</span>
         </div>
-        <button class="btn-action" onclick="sendTestAlert()">📤 Отправить</button>
+        <button class="btn-action" onclick="sendTestAlert()">${t('btn_send')}</button>
       </div>
       <div class="setting">
         <div class="setting-label">
-          <span class="setting-name">Сбросить настройки</span>
-          <span class="setting-hint">Вернуть все поля к значениям по умолчанию.</span>
+          <span class="setting-name">${t('s_reset')}</span>
+          <span class="setting-hint">${t('s_reset_hint')}</span>
         </div>
-        <button class="btn-action danger" onclick="resetSettings()">↺ Сбросить</button>
+        <button class="btn-action danger" onclick="resetSettings()">${t('btn_reset')}</button>
       </div>
     </div>
 
     <div class="setting-section">
-      <h3>📊 Статистика</h3>
+      <h3>📊 ${t('stats')}</h3>
       <div class="stats-grid">
-        <div class="stat"><div class="stat-v">${state.items.length}</div><div class="stat-l">лотов в ленте</div></div>
-        <div class="stat"><div class="stat-v">${state.items.filter(x => (x.floor_price || 0) > x.price).length}</div><div class="stat-l">ниже floor</div></div>
-        <div class="stat"><div class="stat-v">${uniqueValues('name').length}</div><div class="stat-l">коллекций</div></div>
-        <div class="stat"><div class="stat-v">${uniqueValues('model_name').length}</div><div class="stat-l">моделей</div></div>
+        <div class="stat"><div class="stat-v">${state.items.length}</div><div class="stat-l">${t('stat_total')}</div></div>
+        <div class="stat"><div class="stat-v">${state.items.filter(x => (x.floor_price || 0) > x.price).length}</div><div class="stat-l">${t('stat_below_floor')}</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('name').length}</div><div class="stat-l">${t('stat_collections')}</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('model_name').length}</div><div class="stat-l">${t('stat_models')}</div></div>
+        <div class="stat"><div class="stat-v">${avgDiscountPct().toFixed(1)}%</div><div class="stat-l">${t('stat_avg_discount')}</div></div>
+        <div class="stat"><div class="stat-v">${countByMarket('mrkt')}</div><div class="stat-l">MRKT</div></div>
+        <div class="stat"><div class="stat-v">${countByMarket('fragment')}</div><div class="stat-l">Fragment</div></div>
+        <div class="stat"><div class="stat-v">${countByMarket('portals')}</div><div class="stat-l">Portals</div></div>
       </div>
     </div>
 
     <div class="setting-section">
-      <h3>ℹ️ О приложении</h3>
+      <h3>🎨 ${t('appearance')}</h3>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">${t('language')}</span>
+          <span class="setting-hint">${t('language_hint')}</span>
+        </div>
+        <div class="lang-row">
+          <span class="pill ${state.lang === 'ru' ? 'active' : ''}" data-set-lang="ru">🇷🇺 RU</span>
+          <span class="pill ${state.lang === 'en' ? 'active' : ''}" data-set-lang="en">🇬🇧 EN</span>
+        </div>
+      </div>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">${t('theme')}</span>
+          <span class="setting-hint">${t('theme_hint')}</span>
+        </div>
+        <div class="lang-row">
+          <span class="pill ${state.theme === 'auto' ? 'active' : ''}" data-set-theme="auto">${t('theme_auto')}</span>
+          <span class="pill ${state.theme === 'dark' ? 'active' : ''}" data-set-theme="dark">🌙 ${t('theme_dark')}</span>
+          <span class="pill ${state.theme === 'light' ? 'active' : ''}" data-set-theme="light">☀️ ${t('theme_light')}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <h3>ℹ️ ${t('about')}</h3>
       <div class="setting">
         <div class="setting-label"><span class="setting-name">Backend</span>
           <span class="setting-hint">${BACKEND}</span></div>
@@ -1165,6 +1859,25 @@ function renderSettings() {
       </div>
     </div>
   `;
+
+  pane.querySelectorAll('[data-set-lang]').forEach(p => {
+    p.addEventListener('click', () => {
+      state.lang = p.dataset.setLang;
+      LS.set('lang', state.lang);
+      applyI18n();
+      renderSettings();
+      tg?.HapticFeedback?.selectionChanged();
+    });
+  });
+  pane.querySelectorAll('[data-set-theme]').forEach(p => {
+    p.addEventListener('click', () => {
+      state.theme = p.dataset.setTheme;
+      LS.set('theme', state.theme);
+      applyTheme();
+      renderSettings();
+      tg?.HapticFeedback?.selectionChanged();
+    });
+  });
 
   // Wire up multi-pill clicks
   pane.querySelectorAll('[data-multi]').forEach(p => {
@@ -1211,9 +1924,9 @@ function watchlistChips(label, key, field, selected) {
       <div class="watchlist-selected" data-wl-selected="${key}">
         ${[...sel].map(v => `
           <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
-        `).join('') || '<span class="setting-hint">пусто</span>'}
+        `).join('') || `<span class="setting-hint">${t('wl_empty')}</span>`}
       </div>
-      <input class="wl-search" type="text" placeholder="Поиск ${label.toLowerCase()}…"
+      <input class="wl-search" type="text" placeholder="${t('wl_search_ph')} ${label.toLowerCase()}…"
              data-wl-search="${key}" data-wl-field="${field}" />
       <div class="watchlist-options" data-wl-list="${key}">
         ${renderWatchlistOptions(field, key, sel, '')}
@@ -1229,7 +1942,7 @@ function renderWatchlistOptions(field, key, selectedSet, query) {
   return all.slice(0, 30).map(([v, n]) => {
     const on = selectedSet.has(v);
     return `<span class="pill${on ? ' active' : ''}" data-wl-add="${key}" data-val="${escAttr(v)}">${v} · ${n}</span>`;
-  }).join('') || '<span class="setting-hint">ничего не найдено</span>';
+  }).join('') || `<span class="setting-hint">${t('wl_no_results')}</span>`;
 }
 
 function attachWatchlistOptionHandlers(list, key, field) {
@@ -1245,7 +1958,7 @@ function attachWatchlistOptionHandlers(list, key, field) {
       const sel = new Set(currentSettings()[key] || []);
       selStrip.innerHTML = [...sel].map(v => `
         <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
-      `).join('') || '<span class="setting-hint">пусто</span>';
+      `).join('') || `<span class="setting-hint">${t('wl_empty')}</span>`;
       attachWatchlistRemoveHandlers(selStrip, key);
       tg?.HapticFeedback?.selectionChanged();
     };
@@ -1269,32 +1982,42 @@ async function sendTestAlert() {
     const r = await fetch(BACKEND + '/api/test-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const data = await r.json();
     if (data.ok) {
-      showToast('📤 Запрос отправлен, бот пришлёт сообщение через ~10 сек');
+      showToast(t('test_sent'));
       tg?.HapticFeedback?.notificationOccurred('success');
     } else {
-      showToast('❌ Ошибка');
+      showToast(t('error'));
     }
   } catch (e) {
-    showToast('❌ Ошибка сети');
+    showToast(t('network_err'));
   }
 }
 
 function resetSettings() {
-  if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
-  const def = {
-    max_price_ton: 50, min_price_ton: 0, floor_tolerance_pct: 0, min_discount_pct: 0,
-    require_floor: true, monochrome_only: false, max_rarity_pm: 0,
-    notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true,
-    quiet_hours_start: 0, quiet_hours_end: 0, max_alerts_per_cycle: 0,
-    recent_rare_mode: false, recent_rare_pm: 5,
-    watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
-    floor_drop_alert: false, floor_drop_pct: 5,
-    filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+  const apply = () => {
+    const def = {
+      max_price_ton: 50, min_price_ton: 0, floor_tolerance_pct: 0, min_discount_pct: 0,
+      require_floor: true, monochrome_only: false, max_rarity_pm: 0,
+      notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true,
+      quiet_hours_start: 0, quiet_hours_end: 0, max_alerts_per_cycle: 0,
+      recent_rare_mode: false, recent_rare_pm: 5,
+      watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
+      floor_drop_alert: false, floor_drop_pct: 5,
+      filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+    };
+    state.pendingSettings = { ...state.pendingSettings, ...def };
+    renderSettings();
+    $('#save-bar').style.display = '';
+    if (typeof updateMainButton === 'function') updateMainButton();
   };
-  state.pendingSettings = { ...state.pendingSettings, ...def };
-  renderSettings();
-  $('#save-bar').style.display = '';
-  if (typeof updateMainButton === 'function') updateMainButton();
+  // Inside real Telegram → use native popup; otherwise window.confirm.
+  // Outside Telegram (e.g. plain browser) the SDK shim defines tg.showConfirm but
+  // it never invokes the callback, so we must detect with tg.initData.
+  if (isInTelegram() && tg.showConfirm) tg.showConfirm(t('reset_confirm'), (ok) => { if (ok) apply(); });
+  else if (window.confirm(t('reset_confirm'))) apply();
+}
+
+function isInTelegram() {
+  return !!(tg && tg.initData && tg.platform && tg.platform !== 'unknown');
 }
 
 function currentSettings() {
@@ -1381,16 +2104,19 @@ async function saveSettings() {
       state.settings = { ...state.settings, ...diff };
       state.pendingSettings = {};
       $('#save-bar').style.display = 'none';
-      btn.textContent = 'Сохранить изменения';
-      showToast('✅ Настройки отправлены боту');
+      btn.textContent = t('save_btn');
+      state.syncStatus = 'pending';
+      state.pendingSentAt = Date.now();
+      updateSyncBanner();
+      showToast('✅ ' + t('sync_pending'));
       tg?.HapticFeedback?.notificationOccurred('success');
       setTimeout(loadSettings, 4000);
     } else {
-      btn.textContent = 'Ошибка — повторить';
+      btn.textContent = t('error');
       btn.disabled = false;
     }
   } catch (e) {
-    btn.textContent = 'Ошибка сети — повторить';
+    btn.textContent = t('network_err');
     btn.disabled = false;
     tg?.HapticFeedback?.notificationOccurred('error');
   }
@@ -1459,6 +2185,7 @@ window.stepInput = stepInput;
 $$('[data-market]').forEach(p => p.addEventListener('click', () => {
   state.market = p.dataset.market;
   $$('[data-market]').forEach(x => x.classList.toggle('active', x.dataset.market === state.market));
+  persistFilters();
   applyFilters(); renderFeed();
   renderModelBackdropChips();
   tg?.HapticFeedback?.selectionChanged();
@@ -1468,22 +2195,84 @@ $$('[data-flag]').forEach(p => p.addEventListener('click', () => {
   const f = p.dataset.flag;
   if (state.flags.has(f)) state.flags.delete(f); else state.flags.add(f);
   p.classList.toggle('active');
+  persistFilters();
   applyFilters(); renderFeed();
+  updateClearAll();
   tg?.HapticFeedback?.selectionChanged();
 }));
 
-const onSearch = debounce((v) => { state.search = v; applyFilters(); renderFeed(); }, 80);
+const onSearch = debounce((v) => {
+  state.search = v; applyFilters(); renderFeed(); updateClearAll();
+}, 80);
 $('#q').addEventListener('input', (e) => onSearch(e.target.value));
 $('#sort').addEventListener('change', (e) => {
   state.sort = e.target.value;
+  persistFilters();
   applyFilters(); renderFeed();
 });
-$('#refresh-btn').addEventListener('click', () => {
+$('#refresh-btn').addEventListener('click', (ev) => {
   loadFeed();
   if (state.activeTab === 'settings') loadSettings();
+  ev.currentTarget.classList.add('spin');
+  setTimeout(() => ev.currentTarget.classList.remove('spin'), 600);
   tg?.HapticFeedback?.impactOccurred('light');
 });
 $('#save-btn').addEventListener('click', saveSettings);
+$('#clear-all').addEventListener('click', clearAllFilters);
+
+// Theme cycling: auto → dark → light → auto
+$('#theme-btn').addEventListener('click', () => {
+  const order = ['auto', 'dark', 'light'];
+  const i = order.indexOf(state.theme);
+  state.theme = order[(i + 1) % order.length];
+  LS.set('theme', state.theme);
+  applyTheme();
+  tg?.HapticFeedback?.impactOccurred('light');
+});
+
+// View mode toggle: cards ↔ compact
+$('#view-btn').addEventListener('click', () => {
+  state.view = state.view === 'cards' ? 'compact' : 'cards';
+  document.body.classList.toggle('view-compact', state.view === 'compact');
+  LS.set('view', state.view);
+  $('#view-btn').textContent = state.view === 'compact' ? '▤' : '▤';
+  tg?.HapticFeedback?.impactOccurred('light');
+});
+
+// Scroll-to-top FAB & header.scrolled toggle
+const fab = $('#fab-top');
+const header = $('#page-header');
+window.addEventListener('scroll', () => {
+  const y = window.scrollY;
+  fab?.classList.toggle('show', y > 600);
+  header?.classList.toggle('scrolled', y > 4);
+}, { passive: true });
+fab?.addEventListener('click', () => {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  tg?.HapticFeedback?.impactOccurred('light');
+});
+
+// Keyboard hotkeys: '/' focus search, Esc close/clear, Ctrl/Cmd+K focus
+function isTypingTarget(el) {
+  return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+}
+document.addEventListener('keydown', (e) => {
+  if (e.key === '/' && !isTypingTarget(e.target) && state.activeTab === 'feed') {
+    e.preventDefault();
+    $('#q')?.focus();
+  }
+  if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault(); $('#q')?.focus();
+  }
+  if (e.key === 'Escape') {
+    if ($('#modal-bg')?.classList.contains('open')) {
+      closeModal({ target: $('#modal-bg') });
+    } else if ($('#q') === document.activeElement) {
+      $('#q').value = ''; state.search = '';
+      applyFilters(); renderFeed(); updateClearAll();
+    }
+  }
+});
 
 // ─── Model / Backdrop multi-select popovers ────────────────
 function uniqueValues(field) {
@@ -1503,19 +2292,48 @@ function renderModelBackdropChips() {
   if (mp) {
     const n = state.modelFilter.size;
     mp.innerHTML = n
-      ? `🪄 Модель · <b>${n}</b> ▾ <span class="x" data-clear="model">×</span>`
-      : `🪄 Модель ▾`;
+      ? `🪄 ${t('filter_model')} · <b>${n}</b> ▾ <span class="x" data-clear="model">×</span>`
+      : `🪄 ${t('filter_model')} ▾`;
     mp.classList.toggle('active', n > 0);
   }
   if (bp) {
     const n = state.backdropFilter.size;
     bp.innerHTML = n
-      ? `🌅 Фон · <b>${n}</b> ▾ <span class="x" data-clear="backdrop">×</span>`
-      : `🌅 Фон ▾`;
+      ? `🌅 ${t('filter_backdrop')} · <b>${n}</b> ▾ <span class="x" data-clear="backdrop">×</span>`
+      : `🌅 ${t('filter_backdrop')} ▾`;
     bp.classList.toggle('active', n > 0);
   }
   fillFilterList('model_name', $('#model-list'), state.modelFilter, $('#model-search')?.value);
   fillFilterList('backdrop_name', $('#backdrop-list'), state.backdropFilter, $('#backdrop-search')?.value);
+  updateClearAll();
+}
+
+function updateClearAll() {
+  const n = state.flags.size + state.modelFilter.size + state.backdropFilter.size +
+            (state.market !== 'all' ? 1 : 0) + (state.search ? 1 : 0);
+  const btn = $('#clear-all');
+  if (btn) btn.classList.toggle('show', n > 0);
+}
+
+function clearAllFilters() {
+  state.flags.clear();
+  state.modelFilter.clear();
+  state.backdropFilter.clear();
+  state.market = 'all';
+  state.search = '';
+  $('#q').value = '';
+  $$('[data-flag]').forEach(p => p.classList.remove('active'));
+  $$('[data-market]').forEach(p => p.classList.toggle('active', p.dataset.market === 'all'));
+  persistFilters();
+  applyFilters(); renderFeed(); renderModelBackdropChips();
+}
+
+function persistFilters() {
+  LS.set('flags', [...state.flags]);
+  LS.set('modelFilter', [...state.modelFilter]);
+  LS.set('backdropFilter', [...state.backdropFilter]);
+  LS.set('market', state.market);
+  LS.set('sort', state.sort);
 }
 
 function fillFilterList(field, container, set, query) {
@@ -1529,6 +2347,7 @@ function fillFilterList(field, container, set, query) {
     p.textContent = `${v} · ${count}`;
     p.onclick = () => {
       if (set.has(v)) set.delete(v); else set.add(v);
+      persistFilters();
       applyFilters(); renderFeed(); renderModelBackdropChips();
       tg?.HapticFeedback?.selectionChanged();
     };
@@ -1549,6 +2368,7 @@ function togglePop(name) {
 $('#model-pill').addEventListener('click', (e) => {
   if (e.target.dataset.clear === 'model') {
     state.modelFilter.clear();
+    persistFilters();
     applyFilters(); renderFeed(); renderModelBackdropChips();
     return;
   }
@@ -1557,6 +2377,7 @@ $('#model-pill').addEventListener('click', (e) => {
 $('#backdrop-pill').addEventListener('click', (e) => {
   if (e.target.dataset.clear === 'backdrop') {
     state.backdropFilter.clear();
+    persistFilters();
     applyFilters(); renderFeed(); renderModelBackdropChips();
     return;
   }
@@ -1572,12 +2393,76 @@ $('#scrim').addEventListener('click', () => {
   $('#scrim').classList.remove('show');
 });
 
-// init default market: all
-$$('[data-market="all"]').forEach(x => x.classList.add('active'));
+// Restore persisted market / sort / filters / search
+state.market = LS.get('market', 'all');
+$$('[data-market]').forEach(x => x.classList.toggle('active', x.dataset.market === state.market));
+for (const f of state.flags) {
+  $$(`[data-flag="${f}"]`).forEach(p => p.classList.add('active'));
+}
+$('#sort').value = state.sort;
+updateClearAll();
 
 // initial load
 loadFeed();
 loadSettings();
+refreshMarketStatus();
+
+// ─── Live status pollers ───────────────────────────────────
+async function refreshMarketStatus() {
+  try {
+    const r = await fetch(BACKEND + '/api/markets', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    state.marketStatus = j.markets || {};
+    for (const [name, info] of Object.entries(state.marketStatus)) {
+      const dot = document.querySelector(`[data-mkt-dot="${name}"]`);
+      if (!dot) continue;
+      dot.classList.remove('fresh', 'stale', 'dead');
+      const age = info.age_sec;
+      if (age == null) dot.classList.add('dead');
+      else if (age < 90) dot.classList.add('fresh');
+      else if (age < 300) dot.classList.add('stale');
+      else dot.classList.add('dead');
+      const pill = dot.closest('.pill');
+      if (pill) pill.title = `${name}: ${info.count} лотов, ${age == null ? 'нет данных' : age + ' сек назад'}`;
+    }
+  } catch (_) { /* ignore */ }
+}
+
+async function refreshSyncStatus() {
+  // Определяем, подхватил ли бот последние pending-настройки.
+  try {
+    const r = await fetch(BACKEND + '/api/health', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    const pending = (j.pending_settings_ts || 0);
+    const applied = (j.last_applied_ts || 0);
+    const sentAt = state.pendingSentAt || 0;
+    if (sentAt && pending && applied >= pending) {
+      state.syncStatus = 'ok';
+    } else if (sentAt && pending > applied) {
+      state.syncStatus = 'pending';
+    }
+    updateSyncBanner();
+  } catch (_) {}
+}
+
+function updateSyncBanner() {
+  const b = $('#sync-banner');
+  if (!b) return;
+  if (state.activeTab !== 'settings') { b.classList.remove('show'); return; }
+  if (state.syncStatus === 'pending') {
+    b.textContent = '⏳ ' + t('sync_pending');
+    b.classList.add('show');
+    b.classList.remove('ok');
+  } else if (state.syncStatus === 'ok') {
+    b.textContent = '✅ ' + t('sync_ok');
+    b.classList.add('show', 'ok');
+    setTimeout(() => { b.classList.remove('show'); state.syncStatus = 'idle'; }, 4000);
+  } else {
+    b.classList.remove('show');
+  }
+}
 
 // auto-refresh — feed: 6s, settings: 8s for snappy live experience.
 setInterval(() => {
@@ -1588,27 +2473,24 @@ setInterval(() => {
 setInterval(() => {
   if (document.visibilityState === 'visible' && state.activeTab === 'settings') {
     loadSettings();
+    refreshSyncStatus();
   }
 }, 8000);
+setInterval(refreshMarketStatus, 30000);
+// Per-second relative time (footer + live dot + per-card data-ts).
 setInterval(() => {
-  if (state.lastUpdate) {
-    const ts = $('#status-text');
-    if (ts) {
-      const cnt = state.filteredItems.length;
-      ts.innerHTML = `<b>${cnt}</b> / ${state.items.length} лотов · `
-        + (state.source === 'backend' ? 'через backend' : 'fallback')
-        + ` · обновлено ${ago(state.lastUpdate)} назад`;
-    }
-  }
+  if (state.lastUpdate) updateStatusText();
+  // Перерисовывать поп-кард ago-лейблы нет смысла — itemKey их и так подхватывает при очередном loadFeed.
 }, 1000);
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') loadFeed();
+  if (document.visibilityState === 'visible') {
+    loadFeed();
+    refreshMarketStatus();
+  }
 });
 
-// Keyboard: ESC closes modal
-document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape') closeModal();
-});
+// Поправим viewBtn icon (was placeholder)
+$('#view-btn').textContent = state.view === 'compact' ? '▤' : '▤';
 </script>
 </body>
 </html>
