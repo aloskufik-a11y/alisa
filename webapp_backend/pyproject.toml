@@ -1,0 +1,12 @@
+[project]
+name = "tg-gift-monitor-webapp-backend"
+version = "0.1.0"
+description = "Public-facing FastAPI backend that serves the gift monitor SPA + feed"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi[standard]==0.115.0",
+    "uvicorn[standard]==0.32.0",
+    "httpx==0.27.2",
+    "beautifulsoup4==4.12.3",
+    "python-multipart==0.0.12",
+]

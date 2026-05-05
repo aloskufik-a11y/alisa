@@ -1,0 +1,45 @@
+# Don't ship secrets or local state to Koyeb
+.env
+.env.*
+*.session
+*.session-journal
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+settings.json
+floor_cache.json
+*.log
+logs/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+venv/
+env/
+.venv/
+
+# Git/IDE/OS
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Tests / scratch / docs
+test_plan.md
+test-report.md
+test_*.py
+recording*.mp4
+recording*.webp
+testing_evidence/
+
+# Devin's local-only Fly config (we deploy elsewhere)
+fly.toml

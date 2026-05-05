@@ -1,0 +1,1604 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no" />
+<meta name="theme-color" content="#0f1217" />
+<title>Gift Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E🎁%3C/text%3E%3C/svg%3E" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+  :root {
+    --bg: var(--tg-theme-bg-color, #0f1217);
+    --bg-2: #14181f;
+    --fg: var(--tg-theme-text-color, #f5f7fa);
+    --fg-dim: var(--tg-theme-hint-color, #8a93a3);
+    --fg-soft: rgba(255,255,255,.7);
+    --card: var(--tg-theme-secondary-bg-color, #1a1f29);
+    --card-h: #232936;
+    --line: rgba(255,255,255,.07);
+    --accent: var(--tg-theme-button-color, #4ea1ff);
+    --accent-fg: var(--tg-theme-button-text-color, #ffffff);
+    --good: #34c77c;
+    --good-bg: rgba(52,199,124,.12);
+    --warn: #f7b955;
+    --bad: #ff5c5c;
+    --mrkt: #a06bff;
+    --portals: #34c77c;
+    --fragment: #4ea1ff;
+    --radius: 14px;
+    --radius-lg: 18px;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "SF Pro Display", Roboto, sans-serif;
+               font-size: 15px; line-height: 1.4;
+               overscroll-behavior-y: contain; }
+  body { padding-bottom: env(safe-area-inset-bottom, 0); min-height: 100vh; }
+
+  /* Scrollbars (subtle) */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,.1); border-radius: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  header {
+    position: sticky; top: 0; z-index: 10;
+    background: linear-gradient(to bottom, var(--bg) 80%, transparent);
+    padding: 14px 16px 8px;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .head-row {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  }
+  h1 { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -.01em;
+       display: flex; align-items: center; gap: 8px; }
+  .badge-count {
+    font-size: 11px; font-weight: 600; color: var(--fg-dim);
+    background: var(--card); padding: 3px 9px; border-radius: 99px;
+  }
+  .iconbtn {
+    background: var(--card); color: var(--fg); border: none;
+    width: 34px; height: 34px; border-radius: 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: background .15s, transform .1s;
+  }
+  .iconbtn:hover { background: var(--card-h); }
+  .iconbtn:active { transform: scale(.93); }
+
+  .tabs { display: flex; gap: 4px; background: var(--card); padding: 4px;
+          border-radius: 12px; align-self: stretch; }
+  .tab { flex: 1; text-align: center; padding: 8px 10px; border-radius: 9px;
+         font-size: 13.5px; font-weight: 600; cursor: pointer;
+         color: var(--fg-dim); transition: background .15s, color .15s; }
+  .tab.active { background: var(--bg-2); color: var(--fg); box-shadow: 0 1px 0 rgba(0,0,0,.2); }
+
+  /* Filters */
+  .filters-row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: var(--card); border: 1px solid var(--line); border-radius: 99px;
+    padding: 6px 11px; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: var(--fg-soft); transition: transform .12s, background .15s, color .15s, border-color .15s, box-shadow .18s;
+    line-height: 1; user-select: none; will-change: transform;
+  }
+  .pill:active { transform: scale(.94); }
+  .pill.active {
+    background: var(--accent); color: var(--accent-fg); border-color: transparent;
+    box-shadow: 0 4px 12px rgba(78,161,255,.25);
+  }
+  /* Per-flag accent colors when active */
+  .pill[data-flag="below_floor"].active { background: linear-gradient(135deg,#34c77c,#1ea05f); box-shadow: 0 4px 12px rgba(52,199,124,.35); color: #fff; }
+  .pill[data-flag="rare5"].active     { background: linear-gradient(135deg,#f7b955,#d18e2c); box-shadow: 0 4px 12px rgba(247,185,85,.35); color: #1a1206; }
+  .pill[data-flag="lucky777"].active  { background: linear-gradient(135deg,#7be58c,#34c77c); box-shadow: 0 4px 12px rgba(52,199,124,.35); color: #06291a; }
+  .pill[data-flag="round"].active     { background: linear-gradient(135deg,#ffd479,#f0a73b); box-shadow: 0 4px 12px rgba(240,167,59,.35); color: #2b1900; }
+  .pill[data-flag="palindrome"].active{ background: linear-gradient(135deg,#82b8ff,#4ea1ff); box-shadow: 0 4px 12px rgba(78,161,255,.35); color: #001628; }
+  .pill[data-flag="repeat"].active    { background: linear-gradient(135deg,#c69cff,#a06bff); box-shadow: 0 4px 12px rgba(160,107,255,.35); color: #fff; }
+  .pill[data-flag="sub100"].active    { background: linear-gradient(135deg,#ffd166,#ef9c2b); box-shadow: 0 4px 12px rgba(239,156,43,.35); color: #2b1900; }
+  .pill[data-flag="mono"].active      { background: linear-gradient(135deg,#ff8fc6,#cf4fa4); box-shadow: 0 4px 12px rgba(207,79,164,.35); color: #2b0014; }
+  .pill[data-flag="new"].active       { background: linear-gradient(135deg,#fed813,#f0a73b); box-shadow: 0 4px 12px rgba(254,216,19,.35); color: #1a1206; }
+  .pill.market-mrkt.active     { background: linear-gradient(135deg,#a06bff,#7d4fd1); color:#fff; box-shadow: 0 4px 12px rgba(160,107,255,.35); }
+  .pill.market-portals.active  { background: linear-gradient(135deg,#34c77c,#1ea05f); color:#fff; box-shadow: 0 4px 12px rgba(52,199,124,.35); }
+  .pill.market-fragment.active { background: linear-gradient(135deg,#4ea1ff,#1f6fd6); color:#fff; box-shadow: 0 4px 12px rgba(78,161,255,.35); }
+  .pill .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
+    margin-right: 2px;
+  }
+  .pill.market-mrkt .dot { background: var(--mrkt); }
+  .pill.market-portals .dot { background: var(--portals); }
+  .pill.market-fragment .dot { background: var(--fragment); }
+  .pill.active .dot { background: rgba(255,255,255,.85); }
+  .pill .x { margin-left: 2px; opacity: .55; font-size: 14px; line-height: 1; }
+
+  /* Filter group with chevron (model / backdrop) */
+  .filter-group { position: relative; }
+  .filter-pop {
+    position: absolute; top: calc(100% + 6px); left: 0;
+    background: var(--card-h); border: 1px solid var(--line); border-radius: 14px;
+    padding: 8px; min-width: 220px; max-width: min(80vw, 320px);
+    max-height: 50vh; overflow-y: auto; z-index: 30;
+    box-shadow: 0 12px 32px rgba(0,0,0,.5);
+    display: none; flex-wrap: wrap; gap: 4px;
+  }
+  .filter-pop.open { display: flex; }
+  .filter-pop .pill { font-size: 12px; padding: 5px 9px; }
+  .filter-pop .search {
+    width: 100%; margin-bottom: 4px;
+  }
+  .scrim {
+    position: fixed; inset: 0; z-index: 25; display: none; background: transparent;
+  }
+  .scrim.show { display: block; }
+
+  input[type="text"], input[type="number"], select {
+    background: var(--card); color: var(--fg); border: none;
+    border-radius: 10px; padding: 8px 12px; font-size: 14px; outline: none;
+    transition: background .15s;
+  }
+  input[type="text"]:focus, input[type="number"]:focus, select:focus { background: var(--card-h); }
+  input[type="text"] { flex: 1; min-width: 120px; }
+  input[type="number"] { width: 86px; }
+  select { padding-right: 28px;
+           background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%238a93a3' d='M5 6L0 1l1-1 4 4 4-4 1 1z'/%3E%3C/svg%3E");
+           background-repeat: no-repeat; background-position: right 10px center;
+           appearance: none; -webkit-appearance: none; -moz-appearance: none; }
+
+  /* Search bar with icon */
+  .searchbar { position: relative; flex: 1; min-width: 130px; }
+  .searchbar input { width: 100%; padding-left: 32px; }
+  .searchbar::before {
+    content: ""; position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+    width: 14px; height: 14px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238a93a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat center / contain;
+    pointer-events: none;
+  }
+
+  main { padding: 8px 12px 28px; display: flex; flex-direction: column; gap: 8px; }
+  .empty {
+    text-align: center; padding: 80px 24px; color: var(--fg-dim);
+    display: flex; flex-direction: column; align-items: center; gap: 8px;
+  }
+  .empty .e-emoji { font-size: 56px; margin-bottom: 4px; }
+  .empty .e-title { font-size: 16px; font-weight: 600; color: var(--fg); }
+  .empty .e-sub { font-size: 13px; max-width: 280px; }
+
+  /* Cards */
+  .card {
+    background: var(--card); border-radius: var(--radius); padding: 12px;
+    display: flex; gap: 12px; align-items: flex-start;
+    border: 1px solid transparent; cursor: pointer;
+    transition: transform .12s ease, background .15s ease, border-color .15s;
+    position: relative; overflow: hidden;
+  }
+  .card:active { transform: scale(.985); background: var(--card-h); }
+  .card.disc-high { border-color: rgba(52,199,124,.4); }
+  .card.disc-mega {
+    border-color: rgba(52,199,124,.7);
+    box-shadow: 0 0 0 1px rgba(52,199,124,.25), 0 6px 22px rgba(52,199,124,.1);
+  }
+  .card.disc-mega::before {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(to right, rgba(52,199,124,.12), transparent 40%);
+  }
+  .thumb {
+    width: 72px; height: 72px; border-radius: 12px; flex: none;
+    background: linear-gradient(135deg, #2a2f38 0%, #1a1d22 100%);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 30px; position: relative; overflow: hidden;
+  }
+  .thumb img {
+    width: 100%; height: 100%; object-fit: cover; display: block;
+    transition: opacity .25s ease;
+    background: linear-gradient(135deg, #2a2f38 0%, #1a1d22 100%);
+  }
+  .thumb img.loading { opacity: 0; }
+  .thumb.placeholder::after {
+    content: "🎁"; opacity: .5;
+  }
+  .card.card-new { animation: card-appear .35s ease; }
+  @keyframes card-appear {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .title-line {
+    display: flex; align-items: baseline; gap: 6px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .title { font-size: 15.5px; font-weight: 600; line-height: 1.2;
+           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .num { color: var(--fg-dim); font-weight: 500; font-size: 13.5px; }
+  .meta { font-size: 12.5px; color: var(--fg-dim);
+          overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .price-row { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
+  .price { font-size: 17px; font-weight: 700; color: var(--fg); letter-spacing: -.01em; }
+  .price-sm { font-size: 13px; color: var(--fg-dim); text-decoration: line-through; }
+  .floor { font-size: 12.5px; color: var(--fg-dim); }
+  .badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    background: rgba(255,255,255,.07); color: var(--fg);
+    padding: 2px 8px; border-radius: 99px; font-size: 11px;
+    font-weight: 500; line-height: 1.5;
+  }
+  .badge.good { background: var(--good-bg); color: var(--good); font-weight: 600; }
+  .badge.warn { background: rgba(247,185,85,.15); color: var(--warn); }
+  .badge.bad { background: rgba(255,92,92,.15); color: var(--bad); }
+  .badge.mrkt { background: rgba(160,107,255,.18); color: #c69cff; }
+  .badge.portals { background: rgba(52,199,124,.18); color: #6ad9a0; }
+  .badge.fragment { background: rgba(78,161,255,.18); color: #82b8ff; }
+
+  /* Sticky info pane (sort) */
+  .sort-row {
+    display: flex; gap: 6px; align-items: center; font-size: 13px;
+    color: var(--fg-dim);
+  }
+  .sort-row select { font-size: 13px; padding: 6px 28px 6px 10px; }
+
+  /* Settings tab */
+  .settings { display: flex; flex-direction: column; gap: 16px; padding: 4px 0 24px; }
+  .setting-section {
+    background: var(--card); border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .setting-section h3 {
+    margin: 0; padding: 14px 16px 6px; font-size: 12px; font-weight: 700;
+    color: var(--fg-dim); text-transform: uppercase; letter-spacing: .05em;
+  }
+  .setting {
+    display: flex; align-items: center; gap: 12px;
+    padding: 12px 16px; border-top: 1px solid var(--line);
+  }
+  .setting:first-of-type { border-top: none; }
+  .setting-label {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px;
+  }
+  .setting-name { font-size: 14.5px; font-weight: 500; }
+  .setting-hint { font-size: 12px; color: var(--fg-dim); }
+  .setting-value {
+    flex: none; display: flex; align-items: center; gap: 6px;
+    font-size: 14px; color: var(--fg-dim);
+  }
+
+  /* Toggle */
+  .toggle {
+    position: relative; width: 46px; height: 28px;
+    background: var(--card-h); border-radius: 99px; cursor: pointer;
+    transition: background .15s; flex: none;
+  }
+  .toggle::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 22px; height: 22px; background: #fff; border-radius: 50%;
+    transition: left .18s ease, transform .12s;
+    box-shadow: 0 1px 3px rgba(0,0,0,.3);
+  }
+  .toggle.on { background: var(--good); }
+  .toggle.on::after { left: 21px; }
+  .toggle:active::after { transform: scale(.9); }
+
+  /* Number stepper */
+  .stepper { display: inline-flex; align-items: center; gap: 4px; }
+  .stepper button {
+    background: var(--card-h); color: var(--fg); border: none;
+    width: 28px; height: 28px; border-radius: 8px; font-size: 16px;
+    font-weight: 600; cursor: pointer;
+  }
+  .stepper button:active { background: var(--accent); color: var(--accent-fg); }
+  .stepper input { width: 56px; text-align: center; padding: 6px 4px; }
+
+  .multi-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px 14px; }
+  .multi-pills .pill { font-size: 12px; padding: 5px 10px; }
+
+  /* Watchlist UI */
+  .wl-search {
+    width: calc(100% - 32px); margin: 0 16px; padding: 8px 12px;
+    border-radius: 10px; background: var(--card); border: 1px solid var(--line);
+    color: var(--fg); font-size: 13px; box-sizing: border-box;
+  }
+  .wl-search:focus { outline: none; border-color: var(--accent); }
+  .watchlist-selected { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 16px; min-height: 22px; }
+  .watchlist-selected .pill { font-size: 12px; padding: 4px 9px; }
+  .watchlist-options {
+    display: flex; flex-wrap: wrap; gap: 5px; padding: 0 16px 8px;
+    max-height: 180px; overflow-y: auto;
+  }
+  .watchlist-options .pill { font-size: 11.5px; padding: 4px 8px; }
+  .watchlist-options .pill:not(.active) { opacity: .85; }
+
+  /* Action buttons (Test, Reset etc) */
+  .btn-action {
+    background: var(--accent); color: var(--accent-fg);
+    padding: 8px 14px; border: none; border-radius: 10px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    box-shadow: 0 3px 10px rgba(78,161,255,.28);
+    transition: transform .1s, box-shadow .15s, background .15s;
+  }
+  .btn-action:active { transform: scale(.96); }
+  .btn-action.danger {
+    background: linear-gradient(135deg,#ff7a7a,#cf4f4f); color: #fff;
+    box-shadow: 0 3px 10px rgba(207,79,79,.32);
+  }
+
+  /* Stats grid */
+  .stats-grid {
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; padding: 0 16px 12px;
+  }
+  .stat {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 14px; padding: 12px; text-align: center;
+  }
+  .stat-v { font-size: 22px; font-weight: 700; color: var(--accent); }
+  .stat-l { font-size: 11.5px; color: var(--fg-soft); margin-top: 2px; }
+
+  .save-bar {
+    position: sticky; bottom: 0; padding: 12px 16px;
+    background: linear-gradient(to top, var(--bg) 60%, transparent);
+    z-index: 5;
+  }
+  .save-btn {
+    width: 100%; padding: 14px;
+    background: var(--accent); color: var(--accent-fg);
+    border: none; border-radius: 14px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(78,161,255,.35);
+    transition: transform .12s, box-shadow .15s;
+  }
+  .save-btn:disabled { opacity: .5; cursor: default; box-shadow: none; }
+  .save-btn:not(:disabled):active { transform: scale(.98); }
+
+  /* Modal */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.7);
+    display: none; align-items: flex-end; justify-content: center;
+    z-index: 100; backdrop-filter: blur(4px);
+  }
+  .modal-bg.open { display: flex; animation: fadein .15s ease; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  .modal {
+    background: var(--bg-2); width: 100%; max-width: 520px;
+    border-radius: 24px 24px 0 0; padding: 14px 16px 22px;
+    max-height: 92vh; overflow-y: auto;
+    animation: slideup .25s cubic-bezier(.2,.8,.2,1);
+  }
+  @keyframes slideup { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  .modal-handle {
+    width: 38px; height: 4px; background: rgba(255,255,255,.18);
+    border-radius: 4px; margin: 0 auto 14px;
+  }
+  .modal-img {
+    width: 100%; aspect-ratio: 1.4; border-radius: 14px;
+    background: linear-gradient(135deg, #2a2f38, #1a1d22) center/cover;
+    margin-bottom: 14px;
+  }
+  .modal h2 { margin: 0; font-size: 22px; line-height: 1.2;
+              display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .modal .desc { color: var(--fg-dim); font-size: 14px; margin: 4px 0 14px; }
+  .modal .stats {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    margin: 14px 0;
+  }
+  .stat-cell {
+    background: var(--card); border-radius: 12px;
+    padding: 10px 12px; display: flex; flex-direction: column; gap: 2px;
+  }
+  .stat-cell .k { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }
+  .stat-cell .v { font-size: 17px; font-weight: 700; }
+  .stat-cell .v.good { color: var(--good); }
+  .stat-cell .v.bad { color: var(--bad); }
+  .rarity-block { margin: 14px 0 6px; }
+  .rarity-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; }
+  .rarity-row .lab { font-size: 12px; color: var(--fg-dim); width: 78px; flex: none; }
+  .rarity-row .name { flex: 1; min-width: 0; font-size: 13.5px;
+                      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rarity-row .pm { font-size: 12px; color: var(--fg-dim); flex: none; }
+  .rarity-bar { width: 100%; height: 4px; background: rgba(255,255,255,.08);
+                border-radius: 4px; overflow: hidden; margin-top: 4px; }
+  .rarity-bar > div { height: 100%; background: var(--accent);
+                      transition: width .3s ease; }
+  .rarity-bar > div.rare { background: var(--good); }
+  .rarity-bar > div.ultra-rare { background: var(--warn); }
+  .modal-cta {
+    display: block; width: 100%; padding: 14px;
+    background: var(--accent); color: var(--accent-fg);
+    border: none; border-radius: 14px;
+    font-size: 16px; font-weight: 700; cursor: pointer;
+    box-shadow: 0 4px 14px rgba(78,161,255,.35);
+    transition: transform .12s;
+  }
+  .modal-cta:active { transform: scale(.98); }
+  .close-x {
+    position: absolute; top: 14px; right: 14px;
+    background: rgba(255,255,255,.1); color: var(--fg);
+    border: none; width: 32px; height: 32px; border-radius: 50%;
+    font-size: 18px; line-height: 1; cursor: pointer;
+  }
+
+  footer { padding: 16px 16px 32px; text-align: center;
+           font-size: 11.5px; color: var(--fg-dim); }
+  footer a { color: var(--accent); text-decoration: none; }
+
+  /* Toast */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--card-h); color: var(--fg);
+    padding: 10px 16px; border-radius: 99px;
+    font-size: 13px; z-index: 200;
+    box-shadow: 0 6px 24px rgba(0,0,0,.4);
+    opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+
+  /* Skeleton */
+  .skeleton {
+    background: linear-gradient(110deg,
+      var(--card) 8%, var(--card-h) 18%, var(--card) 33%);
+    background-size: 200% 100%;
+    animation: shimmer 1.4s linear infinite;
+  }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .skel-card { height: 96px; border-radius: var(--radius); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-row">
+    <h1>🎁 Gift Monitor <span class="badge-count" id="cnt">0</span></h1>
+    <button class="iconbtn" id="refresh-btn" title="Обновить" aria-label="Обновить">↻</button>
+  </div>
+  <div class="tabs">
+    <div class="tab active" data-tab="feed">📊 Лента</div>
+    <div class="tab" data-tab="settings">⚙️ Настройки</div>
+  </div>
+
+  <div id="feed-controls" class="filters-row" style="display:flex;">
+    <div class="searchbar">
+      <input id="q" type="text" placeholder="Поиск (имя или номер)" autocomplete="off" />
+    </div>
+    <select id="sort" aria-label="Сортировка">
+      <option value="ts">⏱ Свежие</option>
+      <option value="discount">💰 Скидка %</option>
+      <option value="price-asc">⬆ Цена</option>
+      <option value="price-desc">⬇ Цена</option>
+      <option value="rarity">💠 Редкость</option>
+    </select>
+  </div>
+
+  <div id="feed-filters" class="filters-row">
+    <span class="pill" data-market="all">Все</span>
+    <span class="pill market-mrkt" data-market="mrkt"><span class="dot"></span>MRKT</span>
+    <span class="pill market-portals" data-market="portals"><span class="dot"></span>Portals</span>
+    <span class="pill market-fragment" data-market="fragment"><span class="dot"></span>Fragment</span>
+    <span class="pill" data-flag="below_floor">⬇️ Ниже Floor</span>
+    <span class="pill" data-flag="new">✨ Новые 5 мин</span>
+    <span class="pill" data-flag="rare5">💠 Ультра-редкие</span>
+    <span class="pill" data-flag="lucky777">🍀 #777</span>
+    <span class="pill" data-flag="round">⭕ Круглые</span>
+    <span class="pill" data-flag="palindrome">🔄 Палиндром</span>
+    <span class="pill" data-flag="repeat">🔁 Повтор</span>
+    <span class="pill" data-flag="sub100">🥇 #&lt;100</span>
+    <span class="pill" data-flag="mono">🎨 Монохром</span>
+    <div class="filter-group">
+      <span class="pill" id="model-pill">🪄 Модель ▾</span>
+      <div class="filter-pop" id="model-pop">
+        <input class="search" type="text" id="model-search" placeholder="Поиск моделей…" />
+        <div id="model-list" class="filters-row" style="width:100%"></div>
+      </div>
+    </div>
+    <div class="filter-group">
+      <span class="pill" id="backdrop-pill">🌅 Фон ▾</span>
+      <div class="filter-pop" id="backdrop-pop">
+        <input class="search" type="text" id="backdrop-search" placeholder="Поиск фонов…" />
+        <div id="backdrop-list" class="filters-row" style="width:100%"></div>
+      </div>
+    </div>
+  </div>
+  <div class="scrim" id="scrim"></div>
+</header>
+
+<main id="content">
+  <div id="skel-list" style="display:none; flex-direction:column; gap:8px;">
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+    <div class="skeleton skel-card"></div>
+  </div>
+  <div id="cards" style="display:flex; flex-direction:column; gap:8px;"></div>
+  <div class="empty" id="empty-state" style="display:none;">
+    <div class="e-emoji">📭</div>
+    <div class="e-title">Лента пуста</div>
+    <div class="e-sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
+  </div>
+</main>
+
+<footer id="footer">
+  <span id="status-text">Загрузка…</span>
+</footer>
+
+<!-- Settings tab content (hidden until activated) -->
+<main id="settings-pane" class="settings" style="display:none;"></main>
+
+<div class="save-bar" id="save-bar" style="display:none;">
+  <button class="save-btn" id="save-btn" disabled>Сохранить изменения</button>
+</div>
+
+<div class="modal-bg" id="modal-bg" onclick="closeModal(event)">
+  <div class="modal" id="modal" onclick="event.stopPropagation()">
+    <div class="modal-handle"></div>
+    <button class="close-x" onclick="closeModal()">×</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const tg = window.Telegram?.WebApp;
+if (tg) {
+  tg.ready();
+  tg.expand();
+  tg.disableVerticalSwipes?.();
+  if (tg.themeParams?.bg_color) {
+    document.documentElement.style.setProperty('--bg', tg.themeParams.bg_color);
+  }
+}
+
+const BACKEND = window.location.origin.includes('http')
+  ? window.location.origin
+  : 'https://tg-gift-monitor-webap-lypjcjfp.fly.dev';
+
+const $ = (sel) => document.querySelector(sel);
+const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
+let state = {
+  items: [],
+  filteredItems: [],
+  market: 'all',
+  flags: new Set(),
+  search: '',
+  sort: 'ts',
+  source: 'unknown',
+  lastUpdate: 0,
+  feedLoading: false,
+  settings: null,
+  pendingSettings: {},  // local diff
+  activeTab: 'feed',
+  modelFilter: new Set(),
+  backdropFilter: new Set(),
+  domIndex: new Map(),  // id -> { el, key }: persistent DOM nodes for diff render
+  newIds: new Set(),    // ids appeared in last refresh (for sparkle filter)
+  lastSeenIds: new Set(),
+};
+
+// ──────────────────────────────────────────────────────────
+//  Helpers
+// ──────────────────────────────────────────────────────────
+const fmtPrice = (v) => {
+  if (v == null || isNaN(v)) return '—';
+  if (v < 1) return v.toFixed(3);
+  if (v < 10) return v.toFixed(2);
+  return v.toFixed(1);
+};
+
+// Fragment-style slug: 'Vice Cream' -> 'vicecream', 'B-Day Candle' -> 'bdaycandle'
+const nameToSlug = (n) => String(n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+// Image URL with Fragment CDN fallback (works for MRKT items where image_url is empty)
+const gifImageUrl = (it) => {
+  if (it && it.image_url) return it.image_url;
+  if (it && it.name && it.number != null && String(it.number).length) {
+    return `https://nft.fragment.com/gift/${nameToSlug(it.name)}-${it.number}.medium.jpg`;
+  }
+  return '';
+};
+
+const debounce = (fn, ms) => {
+  let t;
+  return function (...args) {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), ms);
+  };
+};
+const ago = (ts) => {
+  const d = Math.max(0, Math.floor((Date.now() / 1000) - ts));
+  if (d < 60) return d + ' сек';
+  if (d < 3600) return Math.floor(d / 60) + ' мин';
+  if (d < 86400) return Math.floor(d / 3600) + ' ч';
+  return Math.floor(d / 86400) + ' д';
+};
+const isLucky = (n) => String(n) === '777';
+const isRound = (n) => {
+  const s = String(n);
+  return /^[1-9]0+$/.test(s) && s.length >= 3;
+};
+const isPalindrome = (n) => {
+  const s = String(n);
+  return s.length >= 3 && s === s.split('').reverse().join('');
+};
+const isRepeat = (n) => {
+  const s = String(n);
+  return s.length >= 3 && /^(\d)\1+$/.test(s);
+};
+const isSub100 = (n) => Number(n) > 0 && Number(n) < 100;
+
+const numberCategories = (n) => {
+  const cats = [];
+  if (isLucky(n)) cats.push({ icon: '🍀', label: 'Lucky 777' });
+  if (isRound(n)) cats.push({ icon: '⭕', label: 'Круглый' });
+  if (isPalindrome(n)) cats.push({ icon: '🔄', label: 'Палиндром' });
+  if (isRepeat(n)) cats.push({ icon: '🔁', label: 'Повтор' });
+  if (isSub100(n)) cats.push({ icon: '🥇', label: '#<100' });
+  return cats;
+};
+
+const minPm = (item) => {
+  const r = item.rarities_pm || {};
+  const arr = [r.model, r.backdrop, r.symbol].filter(v => v && v > 0);
+  return arr.length ? Math.min(...arr) : null;
+};
+
+const isMonochrome = (item) => {
+  // Heuristic: model+backdrop+symbol contains color words from same family
+  const all = [item.model_name, item.backdrop_name, item.symbol_name]
+    .filter(Boolean).join(' ').toLowerCase();
+  const families = [
+    ['gold', 'yellow', 'amber', 'mustard'],
+    ['red', 'crimson', 'rose', 'cherry', 'ruby'],
+    ['blue', 'navy', 'sapphire', 'azure'],
+    ['green', 'emerald', 'jade', 'olive', 'lime', 'mint'],
+    ['black', 'onyx', 'jet', 'coal'],
+    ['white', 'ivory', 'pearl', 'snow'],
+    ['purple', 'violet', 'lavender', 'plum'],
+    ['pink', 'magenta', 'salmon'],
+    ['orange', 'peach', 'coral'],
+    ['silver', 'platinum', 'gray', 'grey', 'metal'],
+  ];
+  for (const f of families) {
+    if (f.filter(c => all.includes(c)).length >= 2) return true;
+  }
+  return false;
+};
+
+const discountPct = (item) => {
+  const f = item.floor_price ?? item.xfloor;
+  if (!f || !item.price) return 0;
+  return ((f - item.price) / f) * 100;
+};
+
+const showToast = (msg) => {
+  const t = $('#toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(showToast._t);
+  showToast._t = setTimeout(() => t.classList.remove('show'), 1800);
+};
+
+// ──────────────────────────────────────────────────────────
+//  Feed
+// ──────────────────────────────────────────────────────────
+async function loadFeed() {
+  if (state.feedLoading) return;
+  state.feedLoading = true;
+  let newItems = null;
+  try {
+    const r = await Promise.race([
+      fetch(BACKEND + '/api/feed'),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 6000)),
+    ]);
+    const data = await r.json();
+    if (data?.ok) {
+      newItems = data.items || [];
+      state.source = 'backend';
+    }
+  } catch (e) {
+    // Fallback: live Portals via public CORS
+    try {
+      const r = await fetch('https://portal-market.com/api/nfts/search?limit=200&offset=0&status=listed');
+      const data = await r.json();
+      newItems = (data.results || []).map(p => {
+        const attrs = p.attributes || [];
+        const find = (t) => attrs.find(a => a.type === t) || {};
+        const m = find('model'), b = find('backdrop'), s = find('symbol');
+        return {
+          ts: Math.floor(Date.now() / 1000),
+          market: 'portals',
+          id: p.id,
+          name: p.name,
+          number: p.external_collection_number,
+          slug: p.tg_id,
+          price: parseFloat(p.price),
+          floor_price: parseFloat(p.floor_price),
+          model_name: m.value, backdrop_name: b.value, symbol_name: s.value,
+          rarities_pm: { model: m.rarity_per_mille, backdrop: b.rarity_per_mille, symbol: s.rarity_per_mille },
+          image_url: p.photo_url,
+          url: 'https://t.me/portals/market?startapp=gift_' + p.id,
+        };
+      });
+      state.source = 'fallback-portals';
+    } catch (e2) {
+      console.error('feed load failed', e2);
+    }
+  }
+  if (newItems) {
+    // Detect newly-appeared items for "✨ Новые 5 мин" filter & card animation.
+    const seen = state.lastSeenIds;
+    state.newIds = new Set(newItems.filter(it => !seen.has(it.id)).map(it => it.id));
+    state.lastSeenIds = new Set(newItems.map(it => it.id));
+    state.items = newItems;
+    state.lastUpdate = Date.now() / 1000;
+  }
+  state.feedLoading = false;
+  applyFilters();
+  renderFeed();
+  renderModelBackdropChips();
+}
+
+async function loadSettings() {
+  try {
+    const r = await fetch(BACKEND + '/api/settings');
+    const data = await r.json();
+    if (data?.ok && data.settings) {
+      state.settings = data.settings;
+      if (state.activeTab === 'settings') renderSettings();
+    }
+  } catch (e) {
+    console.error('settings load failed', e);
+  }
+}
+
+function applyFilters() {
+  const q = state.search.toLowerCase().trim();
+  const flags = state.flags;
+  const models = state.modelFilter;
+  const backdrops = state.backdropFilter;
+  const nowTs = Date.now() / 1000;
+  state.filteredItems = state.items.filter(it => {
+    if (state.market !== 'all' && it.market !== state.market) return false;
+    if (models.size && !models.has(it.model_name || '')) return false;
+    if (backdrops.size && !backdrops.has(it.backdrop_name || '')) return false;
+    if (q) {
+      const hay = [it.name, it.number, it.model_name, it.backdrop_name, it.symbol_name]
+        .filter(Boolean).join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (flags.has('below_floor') && discountPct(it) <= 0) return false;
+    if (flags.has('rare5')) {
+      const m = minPm(it);
+      if (!m || m > 5) return false;
+    }
+    if (flags.has('lucky777') && !isLucky(it.number)) return false;
+    if (flags.has('round') && !isRound(it.number)) return false;
+    if (flags.has('palindrome') && !isPalindrome(it.number)) return false;
+    if (flags.has('repeat') && !isRepeat(it.number)) return false;
+    if (flags.has('sub100') && !isSub100(it.number)) return false;
+    if (flags.has('mono') && !isMonochrome(it)) return false;
+    if (flags.has('new') && (nowTs - (it.ts || 0) > 300)) return false;
+    return true;
+  });
+
+  // Sort
+  const cmp = {
+    'ts':         (a, b) => (b.ts || 0) - (a.ts || 0),
+    'discount':   (a, b) => discountPct(b) - discountPct(a),
+    'price-asc':  (a, b) => (a.price || 0) - (b.price || 0),
+    'price-desc': (a, b) => (b.price || 0) - (a.price || 0),
+    'rarity':     (a, b) => (minPm(a) ?? 1000) - (minPm(b) ?? 1000),
+  }[state.sort];
+  state.filteredItems.sort(cmp);
+}
+
+function itemKey(it) {
+  // Detect any visible change → triggers re-render of that single card.
+  return [it.id, it.price, it.floor_price, it.ts, it.market].join('|');
+}
+
+function renderFeed() {
+  const m = $('#cards');
+  const empty = $('#empty-state');
+  const skel = $('#skel-list');
+  const cnt = state.filteredItems.length;
+  $('#cnt').textContent = cnt;
+
+  if (!state.items.length && state.feedLoading) {
+    m.style.display = 'none';
+    empty.style.display = 'none';
+    skel.style.display = '';
+    return;
+  }
+  skel.style.display = 'none';
+
+  if (!cnt) {
+    m.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  m.style.display = '';
+  empty.style.display = 'none';
+
+  // ── Diff-based DOM update ─────────────────────────────────
+  // Re-use existing card nodes when the underlying item is unchanged.
+  // This keeps scroll position stable, avoids reflow, and makes
+  // filter / sort operations effectively instant.
+  const visible = state.filteredItems.slice(0, 200);
+  const newIndex = new Map();
+  // Pass 1: build/refresh nodes
+  for (const it of visible) {
+    const key = itemKey(it);
+    const existing = state.domIndex.get(it.id);
+    if (existing && existing.key === key) {
+      newIndex.set(it.id, existing);
+    } else {
+      const el = card(it);
+      if (state.newIds.has(it.id)) el.classList.add('card-new');
+      newIndex.set(it.id, { el, key });
+    }
+  }
+  // Pass 2: re-order DOM in sorted order, append new, drop missing.
+  const desiredEls = visible.map(it => newIndex.get(it.id).el);
+  // Use replaceChildren — single DOM mutation, O(n).
+  m.replaceChildren(...desiredEls);
+  state.domIndex = newIndex;
+
+  $('#status-text').innerHTML =
+    `<b>${cnt}</b> / ${state.items.length} лотов · ` +
+    (state.source === 'backend' ? 'через backend' : 'fallback (только Portals)') +
+    ` · обновлено ${ago(state.lastUpdate)} назад`;
+}
+
+function card(it) {
+  const el = document.createElement('div');
+  el.className = 'card';
+  const dp = discountPct(it);
+  if (dp >= 25) el.classList.add('disc-mega');
+  else if (dp >= 10) el.classList.add('disc-high');
+
+  const thumb = document.createElement('div');
+  thumb.className = 'thumb';
+  const src = gifImageUrl(it);
+  if (src) {
+    const img = document.createElement('img');
+    img.loading = 'lazy';
+    img.decoding = 'async';
+    img.alt = '';
+    img.className = 'loading';
+    img.src = src;
+    img.onload = () => img.classList.remove('loading');
+    img.onerror = () => {
+      img.remove();
+      thumb.classList.add('placeholder');
+    };
+    thumb.appendChild(img);
+  } else {
+    thumb.classList.add('placeholder');
+  }
+
+  const info = document.createElement('div');
+  info.className = 'info';
+
+  const titleLine = document.createElement('div');
+  titleLine.className = 'title-line';
+  titleLine.innerHTML = `<span class="title">${escapeHtml(it.name || '?')}</span>` +
+    `<span class="num">#${it.number ?? '?'}</span>`;
+  info.appendChild(titleLine);
+
+  const metaParts = [it.model_name, it.backdrop_name, it.symbol_name].filter(Boolean);
+  if (metaParts.length) {
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = metaParts.join(' · ');
+    info.appendChild(meta);
+  }
+
+  const priceRow = document.createElement('div');
+  priceRow.className = 'price-row';
+  priceRow.innerHTML = `<span class="price">${fmtPrice(it.price)} 💎</span>`;
+  const floor = it.floor_price ?? it.xfloor;
+  if (floor && floor !== it.price) {
+    priceRow.innerHTML += `<span class="floor">из ${fmtPrice(floor)}</span>`;
+  }
+  if (dp >= 1) {
+    priceRow.innerHTML += `<span class="badge good">−${dp.toFixed(1)}%</span>`;
+  }
+  info.appendChild(priceRow);
+
+  const badges = document.createElement('div');
+  badges.className = 'badges';
+  badges.innerHTML = `<span class="badge ${it.market}">${(it.market || '?').toUpperCase()}</span>`;
+  const cats = numberCategories(it.number);
+  for (const c of cats.slice(0, 2)) {
+    badges.innerHTML += `<span class="badge">${c.icon} ${c.label}</span>`;
+  }
+  const m = minPm(it);
+  if (m && m <= 5) {
+    badges.innerHTML += `<span class="badge warn">💠 ${m}‰</span>`;
+  } else if (m && m <= 20) {
+    badges.innerHTML += `<span class="badge">💠 ${m}‰</span>`;
+  }
+  if (isMonochrome(it)) {
+    badges.innerHTML += `<span class="badge">🎨 Монохром</span>`;
+  }
+  info.appendChild(badges);
+
+  el.appendChild(thumb);
+  el.appendChild(info);
+  el.addEventListener('click', () => openModal(it));
+  return el;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  })[c]);
+}
+
+// ──────────────────────────────────────────────────────────
+//  Modal
+// ──────────────────────────────────────────────────────────
+let openModal = function(it) {
+  const dp = discountPct(it);
+  const floor = it.floor_price ?? it.xfloor;
+  const cats = numberCategories(it.number);
+  const r = it.rarities_pm || {};
+
+  const rarityRow = (label, name, pm) => {
+    if (!name && pm == null) return '';
+    const pct = pm != null ? Math.min(100, Math.max(0, 100 - pm * 10)) : 0;
+    const cls = pm != null ? (pm <= 5 ? 'ultra-rare' : (pm <= 20 ? 'rare' : '')) : '';
+    return `
+      <div class="rarity-row">
+        <span class="lab">${label}</span>
+        <span class="name">${escapeHtml(name || '—')}</span>
+        <span class="pm">${pm != null ? pm + '‰' : ''}</span>
+      </div>
+      ${pm != null ? `<div class="rarity-bar"><div class="${cls}" style="width:${pct}%"></div></div>` : ''}
+    `;
+  };
+
+  const c = $('#modal-content');
+  const imgSrc = gifImageUrl(it);
+  c.innerHTML = `
+    ${imgSrc
+      ? `<div class="modal-img" style="background-image:url('${imgSrc}')"></div>`
+      : `<div class="modal-img" style="display:flex;align-items:center;justify-content:center;font-size:80px">🎁</div>`}
+    <h2>${escapeHtml(it.name || '?')}
+        <span class="num">#${it.number ?? '?'}</span>
+        <span class="badge ${it.market}">${(it.market || '?').toUpperCase()}</span></h2>
+    ${cats.length ? `<div class="badges" style="margin-top:8px">${
+      cats.map(c => `<span class="badge">${c.icon} ${c.label}</span>`).join('')
+    }${isMonochrome(it) ? `<span class="badge">🎨 Монохром</span>` : ''}</div>` : ''}
+
+    <div class="stats">
+      <div class="stat-cell">
+        <span class="k">Цена</span>
+        <span class="v">${fmtPrice(it.price)} 💎</span>
+      </div>
+      <div class="stat-cell">
+        <span class="k">Floor</span>
+        <span class="v">${floor ? fmtPrice(floor) + ' 💎' : '—'}</span>
+      </div>
+      ${dp >= 1 ? `
+      <div class="stat-cell">
+        <span class="k">Скидка</span>
+        <span class="v good">−${dp.toFixed(1)}%</span>
+      </div>` : ''}
+      ${dp < -1 ? `
+      <div class="stat-cell">
+        <span class="k">Наценка</span>
+        <span class="v bad">+${(-dp).toFixed(1)}%</span>
+      </div>` : ''}
+    </div>
+
+    <div class="rarity-block">
+      ${rarityRow('Model', it.model_name, r.model)}
+      ${rarityRow('Backdrop', it.backdrop_name, r.backdrop)}
+      ${rarityRow('Symbol', it.symbol_name, r.symbol)}
+    </div>
+
+    ${it.url
+      ? `<button class="modal-cta" onclick="openLink('${escapeHtml(it.url)}', '${it.market}')">
+          🚀 Открыть в ${(it.market || '').toUpperCase()}
+        </button>`
+      : ''}
+  `;
+  $('#modal-bg').classList.add('open');
+  tg?.HapticFeedback?.selectionChanged();
+  if (typeof updateBackButton === 'function') updateBackButton();
+};
+
+let closeModal = function(e) {
+  if (e && e.target.id !== 'modal-bg') return;
+  $('#modal-bg').classList.remove('open');
+  if (typeof updateBackButton === 'function') updateBackButton();
+};
+
+function openLink(url, market) {
+  if (!url) return;
+  if (tg?.openTelegramLink && url.startsWith('https://t.me/')) {
+    tg.openTelegramLink(url);
+  } else if (tg?.openLink) {
+    tg.openLink(url);
+  } else {
+    window.open(url, '_blank');
+  }
+  tg?.HapticFeedback?.impactOccurred('medium');
+}
+
+// ──────────────────────────────────────────────────────────
+//  Settings tab
+// ──────────────────────────────────────────────────────────
+const NUMBER_FILTERS = [
+  { v: 'lucky', l: '🍀 Lucky 777' },
+  { v: 'round', l: '⭕ Круглые' },
+  { v: 'palindrome', l: '🔄 Палиндром' },
+  { v: 'repeat', l: '🔁 Повтор' },
+  { v: 'sub100', l: '🥇 #<100' },
+  { v: 'sequential', l: '➡️ Последовательность' },
+  { v: 'pretty100', l: '✨ Pretty100' },
+];
+const MARKETS = [
+  { v: 'mrkt', l: '🟣 MRKT' },
+  { v: 'portals', l: '🟢 Portals' },
+  { v: 'fragment', l: '🔵 Fragment' },
+];
+
+function renderSettings() {
+  const pane = $('#settings-pane');
+  const s = currentSettings();
+  if (!s) {
+    pane.innerHTML = `<div class="empty"><div class="e-emoji">⏳</div>
+        <div class="e-title">Загрузка настроек…</div>
+        <div class="e-sub">Бот ещё не отправлял snapshot. Подождите ~1 минуту.</div></div>`;
+    return;
+  }
+
+  pane.innerHTML = `
+    <div class="setting-section">
+      <h3>💎 Цена и Floor</h3>
+      ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
+      ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
+        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
+      ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
+      ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
+        'Игнорировать лоты, у которых нет floor.')}
+    </div>
+
+    <div class="setting-section">
+      <h3>🔔 Уведомления</h3>
+      ${toggleRow('Все уведомления', 'notifications_on', s.notifications_on)}
+      ${toggleRow('🟣 MRKT', 'mrkt_alerts_on', s.mrkt_alerts_on)}
+      ${toggleRow('🔵 Fragment', 'fragment_alerts_on', s.fragment_alerts_on)}
+      ${toggleRow('🟢 Portals', 'portals_alerts_on', s.portals_alerts_on)}
+      ${stepperRow('Тихие часы — старт (UTC)', 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
+      ${stepperRow('Тихие часы — конец (UTC)', 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
+      ${stepperRow('Лимит алертов на цикл', 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
+        '0 = без лимита.')}
+      ${toggleRow('Режим «Редкие свежие»', 'recent_rare_mode', s.recent_rare_mode,
+        'Алертить даже если цена выше floor — но только если у лота редкий атрибут (≤ порога).')}
+      ${stepperRow('Порог редкости (‰)', 'recent_rare_pm', s.recent_rare_pm, 0, 100, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>🎯 Фильтры</h3>
+      <div class="setting" style="flex-direction:column; align-items:flex-start;">
+        <div class="setting-name">Маркеты</div>
+        <div class="setting-hint">Только эти маркеты будут попадать в алерт.</div>
+      </div>
+      <div class="multi-pills">
+        ${MARKETS.map(m => `
+          <span class="pill ${(s.filter_markets || []).includes(m.v) ? 'active' : ''}"
+                data-multi="filter_markets" data-val="${m.v}">${m.l}</span>
+        `).join('')}
+      </div>
+
+      <div class="setting" style="flex-direction:column; align-items:flex-start;">
+        <div class="setting-name">Фильтры по номеру</div>
+        <div class="setting-hint">Алертить только номера, попадающие в выбранные категории.</div>
+      </div>
+      <div class="multi-pills">
+        ${NUMBER_FILTERS.map(n => `
+          <span class="pill ${(s.number_filters || []).includes(n.v) ? 'active' : ''}"
+                data-multi="number_filters" data-val="${n.v}">${n.l}</span>
+        `).join('')}
+      </div>
+
+      ${toggleRow('Только монохром', 'monochrome_only', s.monochrome_only)}
+      ${stepperRow('Макс. rarity (‰), 0=выкл', 'max_rarity_pm', s.max_rarity_pm, 0, 100, 0.5,
+        'Алертить только если у лота есть атрибут редкости ≤ этого значения.')}
+    </div>
+
+    <div class="setting-section">
+      <h3>👁 Watchlist</h3>
+      <div class="setting" style="flex-direction:column; align-items:flex-start;">
+        <div class="setting-name">Любой новый лот в подарках, моделях или фонах ниже — алертит мгновенно, даже если цена выше floor.</div>
+      </div>
+      ${watchlistChips('🎁 Подарки', 'watchlist_names', 'name', s.watchlist_names)}
+      ${watchlistChips('🪄 Модели', 'watchlist_models', 'model_name', s.watchlist_models)}
+      ${watchlistChips('🌅 Фоны', 'watchlist_backdrops', 'backdrop_name', s.watchlist_backdrops)}
+    </div>
+
+    <div class="setting-section">
+      <h3>📉 Падение Floor</h3>
+      ${toggleRow('Алерт при падении floor', 'floor_drop_alert', s.floor_drop_alert,
+        'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.')}
+      ${stepperRow('Порог падения, %', 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>🛠 Инструменты</h3>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">Тестовое уведомление</span>
+          <span class="setting-hint">Бот пришлёт сообщение, чтобы проверить канал доставки.</span>
+        </div>
+        <button class="btn-action" onclick="sendTestAlert()">📤 Отправить</button>
+      </div>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">Сбросить настройки</span>
+          <span class="setting-hint">Вернуть все поля к значениям по умолчанию.</span>
+        </div>
+        <button class="btn-action danger" onclick="resetSettings()">↺ Сбросить</button>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <h3>📊 Статистика</h3>
+      <div class="stats-grid">
+        <div class="stat"><div class="stat-v">${state.items.length}</div><div class="stat-l">лотов в ленте</div></div>
+        <div class="stat"><div class="stat-v">${state.items.filter(x => (x.floor_price || 0) > x.price).length}</div><div class="stat-l">ниже floor</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('name').length}</div><div class="stat-l">коллекций</div></div>
+        <div class="stat"><div class="stat-v">${uniqueValues('model_name').length}</div><div class="stat-l">моделей</div></div>
+      </div>
+    </div>
+
+    <div class="setting-section">
+      <h3>ℹ️ О приложении</h3>
+      <div class="setting">
+        <div class="setting-label"><span class="setting-name">Backend</span>
+          <span class="setting-hint">${BACKEND}</span></div>
+      </div>
+      <div class="setting">
+        <div class="setting-label"><span class="setting-name">Bot</span>
+          <span class="setting-hint">@${(s.bot_username || 'gift-monitor')}</span></div>
+      </div>
+    </div>
+  `;
+
+  // Wire up multi-pill clicks
+  pane.querySelectorAll('[data-multi]').forEach(p => {
+    p.addEventListener('click', () => {
+      const key = p.dataset.multi;
+      const val = p.dataset.val;
+      const cur = currentSettings()[key] || [];
+      const has = cur.includes(val);
+      const next = has ? cur.filter(x => x !== val) : [...cur, val];
+      patchSetting(key, next);
+      p.classList.toggle('active');
+      tg?.HapticFeedback?.selectionChanged();
+    });
+  });
+  // Wire watchlist search inputs
+  pane.querySelectorAll('[data-wl-search]').forEach(inp => {
+    inp.addEventListener('input', (e) => {
+      const key = inp.dataset.wlSearch;
+      const list = pane.querySelector('[data-wl-list="' + key + '"]');
+      const field = inp.dataset.wlField;
+      const cur = new Set(currentSettings()[key] || []);
+      list.innerHTML = renderWatchlistOptions(field, key, cur, e.target.value);
+      attachWatchlistOptionHandlers(list, key, field);
+    });
+  });
+}
+
+// ─── Watchlist helpers ─────────────────────────────────────────────────
+function watchlistChips(label, key, field, selected) {
+  const sel = new Set(selected || []);
+  return `
+    <div class="setting" style="flex-direction:column; align-items:flex-start; gap:6px;">
+      <div class="setting-name">${label}</div>
+      <div class="watchlist-selected" data-wl-selected="${key}">
+        ${[...sel].map(v => `
+          <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
+        `).join('') || '<span class="setting-hint">пусто</span>'}
+      </div>
+      <input class="wl-search" type="text" placeholder="Поиск ${label.toLowerCase()}…"
+             data-wl-search="${key}" data-wl-field="${field}" />
+      <div class="watchlist-options" data-wl-list="${key}">
+        ${renderWatchlistOptions(field, key, sel, '')}
+      </div>
+    </div>`;
+}
+
+function escAttr(v) { return String(v || '').replace(/"/g, '&quot;'); }
+
+function renderWatchlistOptions(field, key, selectedSet, query) {
+  const q = (query || '').toLowerCase().trim();
+  const all = uniqueValues(field).filter(([v]) => !q || v.toLowerCase().includes(q));
+  return all.slice(0, 30).map(([v, n]) => {
+    const on = selectedSet.has(v);
+    return `<span class="pill${on ? ' active' : ''}" data-wl-add="${key}" data-val="${escAttr(v)}">${v} · ${n}</span>`;
+  }).join('') || '<span class="setting-hint">ничего не найдено</span>';
+}
+
+function attachWatchlistOptionHandlers(list, key, field) {
+  list.querySelectorAll('[data-wl-add]').forEach(p => {
+    p.onclick = () => {
+      const val = p.dataset.val;
+      const cur = currentSettings()[key] || [];
+      const next = cur.includes(val) ? cur.filter(x => x !== val) : [...cur, val];
+      patchSetting(key, next);
+      p.classList.toggle('active');
+      // Re-render selected chips strip
+      const selStrip = $('[data-wl-selected="' + key + '"]');
+      const sel = new Set(currentSettings()[key] || []);
+      selStrip.innerHTML = [...sel].map(v => `
+        <span class="pill active" data-wl-rm="${key}" data-val="${escAttr(v)}">${v} ×</span>
+      `).join('') || '<span class="setting-hint">пусто</span>';
+      attachWatchlistRemoveHandlers(selStrip, key);
+      tg?.HapticFeedback?.selectionChanged();
+    };
+  });
+}
+
+function attachWatchlistRemoveHandlers(strip, key) {
+  strip.querySelectorAll('[data-wl-rm]').forEach(p => {
+    p.onclick = () => {
+      const val = p.dataset.val;
+      const cur = currentSettings()[key] || [];
+      patchSetting(key, cur.filter(x => x !== val));
+      renderSettings();
+      tg?.HapticFeedback?.selectionChanged();
+    };
+  });
+}
+
+async function sendTestAlert() {
+  try {
+    const r = await fetch(BACKEND + '/api/test-alert', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('📤 Запрос отправлен, бот пришлёт сообщение через ~10 сек');
+      tg?.HapticFeedback?.notificationOccurred('success');
+    } else {
+      showToast('❌ Ошибка');
+    }
+  } catch (e) {
+    showToast('❌ Ошибка сети');
+  }
+}
+
+function resetSettings() {
+  if (!confirm('Сбросить все настройки к значениям по умолчанию?')) return;
+  const def = {
+    max_price_ton: 50, min_price_ton: 0, floor_tolerance_pct: 0, min_discount_pct: 0,
+    require_floor: true, monochrome_only: false, max_rarity_pm: 0,
+    notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true,
+    quiet_hours_start: 0, quiet_hours_end: 0, max_alerts_per_cycle: 0,
+    recent_rare_mode: false, recent_rare_pm: 5,
+    watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
+    floor_drop_alert: false, floor_drop_pct: 5,
+    filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+  };
+  state.pendingSettings = { ...state.pendingSettings, ...def };
+  renderSettings();
+  $('#save-bar').style.display = '';
+  if (typeof updateMainButton === 'function') updateMainButton();
+}
+
+function currentSettings() {
+  if (!state.settings) return null;
+  return { ...state.settings, ...state.pendingSettings };
+}
+
+let patchSetting = function(key, value) {
+  state.pendingSettings[key] = value;
+  $('#save-bar').style.display = '';
+  $('#save-btn').disabled = false;
+  if (typeof updateMainButton === 'function') updateMainButton();
+};
+
+function toggleRow(label, key, value, hint = '') {
+  const id = 't_' + key + '_' + Math.random().toString(36).slice(2, 6);
+  return `
+    <div class="setting">
+      <div class="setting-label">
+        <span class="setting-name">${label}</span>
+        ${hint ? `<span class="setting-hint">${hint}</span>` : ''}
+      </div>
+      <div class="toggle ${value ? 'on' : ''}" id="${id}" onclick="toggleSetting('${key}', '${id}')"></div>
+    </div>
+  `;
+}
+
+function toggleSetting(key, elId) {
+  const el = document.getElementById(elId);
+  const newVal = !el.classList.contains('on');
+  el.classList.toggle('on', newVal);
+  patchSetting(key, newVal);
+  tg?.HapticFeedback?.selectionChanged();
+}
+
+function stepperRow(label, key, value, min, max, step, hint = '') {
+  const id = 's_' + key;
+  return `
+    <div class="setting">
+      <div class="setting-label">
+        <span class="setting-name">${label}</span>
+        ${hint ? `<span class="setting-hint">${hint}</span>` : ''}
+      </div>
+      <div class="stepper">
+        <button onclick="stepSetting('${key}', '${id}', -1, ${min}, ${max}, ${step})">−</button>
+        <input id="${id}" type="number" value="${value}" min="${min}" max="${max}" step="${step}"
+               oninput="stepInput('${key}', this.value, ${min}, ${max})" />
+        <button onclick="stepSetting('${key}', '${id}', 1, ${min}, ${max}, ${step})">+</button>
+      </div>
+    </div>
+  `;
+}
+function stepSetting(key, id, dir, min, max, step) {
+  const el = document.getElementById(id);
+  let v = parseFloat(el.value) || 0;
+  v = Math.max(min, Math.min(max, v + dir * step));
+  v = Math.round(v / step) * step;
+  if (Number.isInteger(step)) v = Math.round(v);
+  else v = Math.round(v * 1000) / 1000;
+  el.value = v;
+  patchSetting(key, v);
+  tg?.HapticFeedback?.selectionChanged();
+}
+function stepInput(key, raw, min, max) {
+  const v = Math.max(min, Math.min(max, parseFloat(raw) || 0));
+  patchSetting(key, v);
+}
+
+async function saveSettings() {
+  const diff = state.pendingSettings;
+  if (!Object.keys(diff).length) return;
+  const btn = $('#save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Отправка…';
+  try {
+    const r = await fetch(BACKEND + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: diff }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      // Локально применяем сразу, чтобы UI не дёргался
+      state.settings = { ...state.settings, ...diff };
+      state.pendingSettings = {};
+      $('#save-bar').style.display = 'none';
+      btn.textContent = 'Сохранить изменения';
+      showToast('✅ Настройки отправлены боту');
+      tg?.HapticFeedback?.notificationOccurred('success');
+      setTimeout(loadSettings, 4000);
+    } else {
+      btn.textContent = 'Ошибка — повторить';
+      btn.disabled = false;
+    }
+  } catch (e) {
+    btn.textContent = 'Ошибка сети — повторить';
+    btn.disabled = false;
+    tg?.HapticFeedback?.notificationOccurred('error');
+  }
+}
+
+// ──────────────────────────────────────────────────────────
+//  Tab switching & wiring
+// ──────────────────────────────────────────────────────────
+function switchTab(tab) {
+  state.activeTab = tab;
+  $$('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+  $('#feed-controls').style.display = tab === 'feed' ? '' : 'none';
+  $('#feed-filters').style.display = tab === 'feed' ? '' : 'none';
+  $('#content').style.display = tab === 'feed' ? '' : 'none';
+  $('#footer').style.display = tab === 'feed' ? '' : 'none';
+  $('#settings-pane').style.display = tab === 'settings' ? '' : 'none';
+  $('#save-bar').style.display = tab === 'settings' && Object.keys(state.pendingSettings).length ? '' : 'none';
+  if (tab === 'settings') {
+    if (!state.settings) loadSettings();
+    else renderSettings();
+  }
+  tg?.HapticFeedback?.selectionChanged();
+}
+
+$$('.tab').forEach(t => t.addEventListener('click', () => switchTab(t.dataset.tab)));
+
+// ──────────────────────────────────────────────────────────
+//  Telegram MainButton / BackButton wiring
+// ──────────────────────────────────────────────────────────
+function updateMainButton() {
+  if (!tg?.MainButton) return;
+  const mb = tg.MainButton;
+  if (state.activeTab === 'settings' && Object.keys(state.pendingSettings).length) {
+    mb.setText('💾 Сохранить');
+    mb.show();
+    mb.enable();
+    mb.color = '#4ea1ff';
+    mb.onClick(saveSettings);
+  } else {
+    mb.hide();
+    mb.offClick(saveSettings);
+  }
+}
+// BackButton: show in modal; hide otherwise
+function updateBackButton() {
+  if (!tg?.BackButton) return;
+  const bb = tg.BackButton;
+  const modalOpen = $('#modal-bg').classList.contains('open');
+  if (modalOpen) {
+    bb.show();
+    bb.onClick(closeModal);
+  } else {
+    bb.hide();
+    bb.offClick(closeModal);
+  }
+}
+
+// Inline onclick handlers run in global scope; expose `let`-declared funcs.
+window.openModal = openModal;
+window.closeModal = closeModal;
+window.openLink = openLink;
+window.toggleSetting = toggleSetting;
+window.stepSetting = stepSetting;
+window.stepInput = stepInput;
+
+$$('[data-market]').forEach(p => p.addEventListener('click', () => {
+  state.market = p.dataset.market;
+  $$('[data-market]').forEach(x => x.classList.toggle('active', x.dataset.market === state.market));
+  applyFilters(); renderFeed();
+  renderModelBackdropChips();
+  tg?.HapticFeedback?.selectionChanged();
+}));
+
+$$('[data-flag]').forEach(p => p.addEventListener('click', () => {
+  const f = p.dataset.flag;
+  if (state.flags.has(f)) state.flags.delete(f); else state.flags.add(f);
+  p.classList.toggle('active');
+  applyFilters(); renderFeed();
+  tg?.HapticFeedback?.selectionChanged();
+}));
+
+const onSearch = debounce((v) => { state.search = v; applyFilters(); renderFeed(); }, 80);
+$('#q').addEventListener('input', (e) => onSearch(e.target.value));
+$('#sort').addEventListener('change', (e) => {
+  state.sort = e.target.value;
+  applyFilters(); renderFeed();
+});
+$('#refresh-btn').addEventListener('click', () => {
+  loadFeed();
+  if (state.activeTab === 'settings') loadSettings();
+  tg?.HapticFeedback?.impactOccurred('light');
+});
+$('#save-btn').addEventListener('click', saveSettings);
+
+// ─── Model / Backdrop multi-select popovers ────────────────
+function uniqueValues(field) {
+  const set = new Map();
+  for (const it of state.items) {
+    const v = (it[field] || '').trim();
+    if (!v) continue;
+    set.set(v, (set.get(v) || 0) + 1);
+  }
+  return Array.from(set.entries()).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function renderModelBackdropChips() {
+  // Update label counters on the trigger pills + render lists.
+  const mp = $('#model-pill');
+  const bp = $('#backdrop-pill');
+  if (mp) {
+    const n = state.modelFilter.size;
+    mp.innerHTML = n
+      ? `🪄 Модель · <b>${n}</b> ▾ <span class="x" data-clear="model">×</span>`
+      : `🪄 Модель ▾`;
+    mp.classList.toggle('active', n > 0);
+  }
+  if (bp) {
+    const n = state.backdropFilter.size;
+    bp.innerHTML = n
+      ? `🌅 Фон · <b>${n}</b> ▾ <span class="x" data-clear="backdrop">×</span>`
+      : `🌅 Фон ▾`;
+    bp.classList.toggle('active', n > 0);
+  }
+  fillFilterList('model_name', $('#model-list'), state.modelFilter, $('#model-search')?.value);
+  fillFilterList('backdrop_name', $('#backdrop-list'), state.backdropFilter, $('#backdrop-search')?.value);
+}
+
+function fillFilterList(field, container, set, query) {
+  if (!container) return;
+  const q = (query || '').toLowerCase().trim();
+  const values = uniqueValues(field).filter(([v]) => !q || v.toLowerCase().includes(q));
+  const frag = document.createDocumentFragment();
+  for (const [v, count] of values.slice(0, 100)) {
+    const p = document.createElement('span');
+    p.className = 'pill' + (set.has(v) ? ' active' : '');
+    p.textContent = `${v} · ${count}`;
+    p.onclick = () => {
+      if (set.has(v)) set.delete(v); else set.add(v);
+      applyFilters(); renderFeed(); renderModelBackdropChips();
+      tg?.HapticFeedback?.selectionChanged();
+    };
+    frag.appendChild(p);
+  }
+  container.replaceChildren(frag);
+}
+
+function togglePop(name) {
+  const pop = $('#' + name + '-pop');
+  const sc = $('#scrim');
+  const others = ['model', 'backdrop'].filter(x => x !== name);
+  others.forEach(x => $('#' + x + '-pop').classList.remove('open'));
+  const open = pop.classList.toggle('open');
+  sc.classList.toggle('show', open);
+}
+
+$('#model-pill').addEventListener('click', (e) => {
+  if (e.target.dataset.clear === 'model') {
+    state.modelFilter.clear();
+    applyFilters(); renderFeed(); renderModelBackdropChips();
+    return;
+  }
+  togglePop('model');
+});
+$('#backdrop-pill').addEventListener('click', (e) => {
+  if (e.target.dataset.clear === 'backdrop') {
+    state.backdropFilter.clear();
+    applyFilters(); renderFeed(); renderModelBackdropChips();
+    return;
+  }
+  togglePop('backdrop');
+});
+$('#model-search').addEventListener('input', () =>
+  fillFilterList('model_name', $('#model-list'), state.modelFilter, $('#model-search').value));
+$('#backdrop-search').addEventListener('input', () =>
+  fillFilterList('backdrop_name', $('#backdrop-list'), state.backdropFilter, $('#backdrop-search').value));
+$('#scrim').addEventListener('click', () => {
+  $('#model-pop').classList.remove('open');
+  $('#backdrop-pop').classList.remove('open');
+  $('#scrim').classList.remove('show');
+});
+
+// init default market: all
+$$('[data-market="all"]').forEach(x => x.classList.add('active'));
+
+// initial load
+loadFeed();
+loadSettings();
+
+// auto-refresh — feed: 6s, settings: 8s for snappy live experience.
+setInterval(() => {
+  if (document.visibilityState === 'visible' && state.activeTab === 'feed') {
+    loadFeed();
+  }
+}, 6000);
+setInterval(() => {
+  if (document.visibilityState === 'visible' && state.activeTab === 'settings') {
+    loadSettings();
+  }
+}, 8000);
+setInterval(() => {
+  if (state.lastUpdate) {
+    const ts = $('#status-text');
+    if (ts) {
+      const cnt = state.filteredItems.length;
+      ts.innerHTML = `<b>${cnt}</b> / ${state.items.length} лотов · `
+        + (state.source === 'backend' ? 'через backend' : 'fallback')
+        + ` · обновлено ${ago(state.lastUpdate)} назад`;
+    }
+  }
+}, 1000);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') loadFeed();
+});
+
+// Keyboard: ESC closes modal
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+});
+</script>
+</body>
+</html>
