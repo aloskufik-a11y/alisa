@@ -424,6 +424,8 @@ _DEFAULT_SETTINGS = {
     "max_price_ton": 50.0,
     "min_price_ton": 0.0,
     "floor_tolerance_pct": 0.0,
+    "strict_below_floor": True,
+    "min_savings_ton": 0.0,
     "min_discount_pct": 0,
     "require_floor": True,
     "filter_rarity": [],

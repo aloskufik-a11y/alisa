@@ -807,8 +807,12 @@ const I18N = {
     sec_price_floor: '💎 Цена и Floor',
     s_min_price: 'Мин. цена TON',
     s_max_price: 'Макс. цена TON',
+    s_strict_below: 'Только строго ниже Floor',
+    s_strict_below_hint: 'ВКЛ (рекомендуется): алерт только если price < floor. Покупка ровно по полу = ноль профита.',
+    s_min_savings: 'Мин. экономия TON',
+    s_min_savings_hint: 'Абсолютный минимум выгоды: floor − price ≥ этого значения. 0 = не учитывать.',
     s_floor_tol: 'Допуск над Floor, %',
-    s_floor_tol_hint: 'Лот считается выгодным, если price ≤ floor × (1 + допуск).',
+    s_floor_tol_hint: 'Работает только при выключённом «Строго ниже Floor». Допуск price ≤ floor × (1 + допуск).',
     s_min_disc: 'Мин. скидка от Floor, %',
     s_require_floor: 'Только с известным Floor',
     s_require_floor_hint: 'Игнорировать лоты, у которых нет floor.',
@@ -888,8 +892,12 @@ const I18N = {
     sec_price_floor: '💎 Price & Floor',
     s_min_price: 'Min price TON',
     s_max_price: 'Max price TON',
+    s_strict_below: 'Only strictly below floor',
+    s_strict_below_hint: 'ON (recommended): alert only when price < floor. Buying exactly at floor = zero profit.',
+    s_min_savings: 'Min savings TON',
+    s_min_savings_hint: 'Absolute savings threshold: floor − price ≥ this. 0 = ignore.',
     s_floor_tol: 'Floor tolerance, %',
-    s_floor_tol_hint: 'A lot counts as a deal when price ≤ floor × (1 + tolerance).',
+    s_floor_tol_hint: 'Only when “Strictly below floor” is OFF. Allows price ≤ floor × (1 + tolerance).',
     s_min_disc: 'Min discount from floor, %',
     s_require_floor: 'Only items with known floor',
     s_require_floor_hint: 'Ignore lots without a floor.',
@@ -1722,6 +1730,10 @@ function renderSettings() {
       <h3>${t('sec_price_floor')}</h3>
       ${stepperRow(t('s_min_price'), 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
       ${stepperRow(t('s_max_price'), 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${toggleRow(t('s_strict_below'), 'strict_below_floor', s.strict_below_floor !== false,
+        t('s_strict_below_hint'))}
+      ${stepperRow(t('s_min_savings'), 'min_savings_ton', s.min_savings_ton ?? 0, 0, 1000, 0.1,
+        t('s_min_savings_hint'))}
       ${stepperRow(t('s_floor_tol'), 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
         t('s_floor_tol_hint'))}
       ${stepperRow(t('s_min_disc'), 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
