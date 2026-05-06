@@ -12,7 +12,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    branch: devin/1777733662-fix-parsing-and-monitoring
+    branch: main
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -25,6 +25,8 @@ services:
       - key: USER_ID
         sync: false
       - key: TELEGRAM_STRING_SESSION
+        sync: false
+      - key: WEBAPP_BACKEND_KEY
         sync: false
       - key: WEBAPP_BACKEND_URL
         value: https://tg-gift-monitor-webap-lypjcjfp.fly.dev
