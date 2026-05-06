@@ -920,8 +920,12 @@ def normalize_market(market: str) -> str:
 DEFAULT_S: dict = {
     "max_price_ton": 50.0,         # Макс. цена в TON (абсолютный потолок)
     "min_price_ton": 0.0,          # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,    # Сколько % сверху от floor допускать (0 = только floor)
-    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%)
+    "floor_tolerance_pct": 0.0,    # Когда strict_below_floor=False: сколько % сверху от floor допускать.
+    "strict_below_floor": True,    # Если True — price ДОЛЖЕН быть строго < floor (равенство не считается выгодой).
+                                   # Покупка точно по полу = ноль профита, поэтому такие лоты по умолчанию не алертим.
+                                   # Установите False, если хотите ловить и price == floor (старое поведение).
+    "min_savings_ton": 0.0,        # Доп. фильтр: абсолютный минимум экономии в TON (floor - price >= этого).
+    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%).
     "require_floor": True,         # Если True — без known floor лот не выгоден
     "filter_rarity": [],           # Белый список редкостей
     "filter_markets": ["mrkt", "fragment", "portals"],
@@ -1120,10 +1124,29 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
 
     if not bypass_floor:
         if floor_valid:
-            max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
-            # +0.000001 запас на ошибки округления
-            if price > max_allowed + 1e-6:
-                return False
+            floor_f = float(floor)
+            strict_below = bool(s.get("strict_below_floor", DEFAULT_S["strict_below_floor"]))
+            min_savings_ton = float(s.get("min_savings_ton", DEFAULT_S["min_savings_ton"]) or 0.0)
+
+            if strict_below:
+                # Цена должна быть СТРОГО ниже floor (даже на 1 nanoTON).
+                # 1e-6 — компенсация ошибок округления (TON хранится с 9 знаками,
+                # бот округляет до 6 — эпсилон достаточно мал, чтобы не ловить
+                # реальные равенства, но достаточно велик, чтобы не путать price==floor
+                # с price = floor - 0.0000001).
+                if price >= floor_f - 1e-6:
+                    return False
+            else:
+                max_allowed = floor_f * (1.0 + floor_tolerance_pct / 100.0)
+                if price > max_allowed + 1e-6:
+                    return False
+
+            # Абсолютный минимум экономии в TON.
+            # Применяется ВНЕ зависимости от strict_below_floor — это дополнительный
+            # порог: "меньше N TON экономии не алерти, даже если технически ниже floor".
+            if min_savings_ton > 0:
+                if (floor_f - price) < min_savings_ton - 1e-6:
+                    return False
         elif require_floor:
             # Без known floor мы не можем гарантировать выгодность
             return False
