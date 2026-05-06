@@ -51,8 +51,10 @@ CHANNELS_TO_MONITOR: list[str] = (
 )
 
 # ── Интервалы опроса (секунды) ─────────────────────────────────────────────────
-FRAGMENT_POLL_INTERVAL: int = _env_int("FRAGMENT_POLL_INTERVAL", 60)
-MRKT_POLL_INTERVAL: int = _env_int("MRKT_POLL_INTERVAL", 90)
+# Снижены с 60/90s → 30/30s. 30s — рекомендуемая граница (см. validate_config()),
+# ниже не идём из-за риска 429 Rate Limit. Дают в среднем 15s latency вместо 45s раньше.
+FRAGMENT_POLL_INTERVAL: int = _env_int("FRAGMENT_POLL_INTERVAL", 30)
+MRKT_POLL_INTERVAL: int = _env_int("MRKT_POLL_INTERVAL", 30)
 
 # ── Фильтрация (исторический верхний предел Stars-цены) ──────────────────────
 MAX_PROFITABLE_PRICE_STARS: int = 5000

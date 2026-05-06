@@ -607,18 +607,31 @@ const ago = (ts) => {
   if (d < 86400) return Math.floor(d / 3600) + ' ч';
   return Math.floor(d / 86400) + ' д';
 };
-const isLucky = (n) => String(n) === '777';
+// Фильтры номеров — синхронизированы с серверным logic.number_categories():
+//   раньше isLucky ловило только #777 вместо {7,77,777,7777,...},
+//   isRound пропускал #10 (было s.length>=3),
+//   isRepeat пропускал #11/#22 (было >=3).
+const isLucky = (n) => {
+  const s = String(parseInt(n, 10) || 0);
+  if (s === '0') return false;
+  return /^7+$/.test(s);
+};
 const isRound = (n) => {
-  const s = String(n);
-  return /^[1-9]0+$/.test(s) && s.length >= 3;
+  // Дегенерируем от всех ROUND-чисел: 10/100/1000/10000/100000/1000000.
+  const k = parseInt(n, 10);
+  return [10, 100, 1000, 10000, 100000, 1000000].includes(k);
 };
 const isPalindrome = (n) => {
-  const s = String(n);
-  return s.length >= 3 && s === s.split('').reverse().join('');
+  const s = String(parseInt(n, 10) || 0);
+  // Сервер исключает случаи с одной цифрой (#777 идёт в repeat, не в palindrome).
+  if (s.length < 3) return false;
+  if (new Set(s).size === 1) return false;
+  return s === s.split('').reverse().join('');
 };
 const isRepeat = (n) => {
-  const s = String(n);
-  return s.length >= 3 && /^(\d)\1+$/.test(s);
+  // Сервер: все цифры одинаковые И длина ≥ 2.
+  const s = String(parseInt(n, 10) || 0);
+  return s.length >= 2 && /^(\d)\1+$/.test(s);
 };
 const isSub100 = (n) => Number(n) > 0 && Number(n) < 100;
 
@@ -1189,6 +1202,16 @@ function renderSettings() {
       list.innerHTML = renderWatchlistOptions(field, key, cur, e.target.value);
       attachWatchlistOptionHandlers(list, key, field);
     });
+  });
+  // Wire initial watchlist option / remove handlers (one-time on render)
+  pane.querySelectorAll('[data-wl-list]').forEach(list => {
+    const key = list.dataset.wlList;
+    const inp = pane.querySelector('[data-wl-search="' + key + '"]');
+    const field = inp ? inp.dataset.wlField : '';
+    attachWatchlistOptionHandlers(list, key, field);
+  });
+  pane.querySelectorAll('[data-wl-selected]').forEach(strip => {
+    attachWatchlistRemoveHandlers(strip, strip.dataset.wlSelected);
   });
 }
 
