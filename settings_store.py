@@ -15,7 +15,11 @@ _lock = threading.Lock()
 DEFAULT_SETTINGS: dict = {
     "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов (абсолютный потолок)
     "min_price_ton": 0.0,               # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,         # Допустимое превышение Floor (%). 0 = только floor
+    "floor_tolerance_pct": 0.0,         # Когда strict_below_floor=False: допустимое превышение Floor (%).
+    "strict_below_floor": True,         # Если True — price ДОЛЖЕН быть строго < floor.
+                                        # Покупка точно по полу = ноль профита, такие лоты не алертим по умолчанию.
+                                        # False = старое поведение (price <= floor допустим).
+    "min_savings_ton": 0.0,             # Доп. фильтр: абсолютный минимум экономии в TON (floor − price ≥ этого).
     "min_discount_pct": 0,              # Мин. скидка от Floor (%) (доп. фильтр)
     "require_floor": True,              # Алертить только лоты с известным floor
     "filter_rarity": [],                # [] = все редкости

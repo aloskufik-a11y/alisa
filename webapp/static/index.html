@@ -1057,8 +1057,12 @@ function renderSettings() {
       <h3>💎 Цена и Floor</h3>
       ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
       ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${toggleRow('Только строго ниже Floor', 'strict_below_floor', s.strict_below_floor !== false,
+        'ВКЛ (рекомендуется): алерт только если price < floor — покупка ровно по полу = ноль профита, такие лоты игнорируем. ВЫКЛ: ловим и price = floor (старое поведение).')}
+      ${stepperRow('Мин. экономия TON', 'min_savings_ton', s.min_savings_ton ?? 0, 0, 1000, 0.1,
+        'Абсолютный минимум выгоды: floor − price ≥ этого значения. 0 = не учитывать.')}
       ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
-        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
+        'Работает только при выключенном «Только строго ниже Floor». Допуск price ≤ floor × (1 + допуск).')}
       ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
       ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
         'Игнорировать лоты, у которых нет floor.')}
