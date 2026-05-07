@@ -51,8 +51,15 @@ CHANNELS_TO_MONITOR: list[str] = (
 )
 
 # ── Интервалы опроса (секунды) ─────────────────────────────────────────────────
+# Полный поллинг (все страницы) — низкая частота, чтобы не было 429.
 FRAGMENT_POLL_INTERVAL: int = _env_int("FRAGMENT_POLL_INTERVAL", 60)
-MRKT_POLL_INTERVAL: int = _env_int("MRKT_POLL_INTERVAL", 90)
+MRKT_POLL_INTERVAL: int = _env_int("MRKT_POLL_INTERVAL", 60)
+
+# Fast-lane поллинг — только 1-я страница (где появляются новые лоты), очень частое.
+# Цель: latency «лот появился → алерт» ≤ 10 сек. Один HTTP-запрос на цикл,
+# нагрузка по сети ≈ 6 req/min на market — далеко ниже rate-limit.
+FAST_POLL_INTERVAL: int = _env_int("FAST_POLL_INTERVAL", 10)
+FAST_POLL_PAGES: int = _env_int("FAST_POLL_PAGES", 1)
 
 # ── Фильтрация (исторический верхний предел Stars-цены) ──────────────────────
 MAX_PROFITABLE_PRICE_STARS: int = 5000

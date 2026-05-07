@@ -40,6 +40,29 @@ dp = Dispatcher()
 # FSM: chat_id → тип ожидаемого ввода ("ton" | "discount")
 _pending_input: dict[int, str] = {}
 
+# Кэш недавно отправленных алертов: cache_key (market_id) → gift dict.
+# Используется для callback "🤖 Спросить AI" — id в callback_data уже не
+# хранит весь gift (TG limit 64 bytes), поэтому подтягиваем из кэша.
+# LRU поведение: при превышении 300 шт. удаляем самые старые.
+_alert_cache: dict[str, dict] = {}
+_ALERT_CACHE_MAX = 300
+
+
+def _cache_alert(gift: dict, market: str) -> str | None:
+    """Сохраняет gift по market+id, возвращает cache_key (≤ 50 байт)
+    или None если у лота нет id."""
+    raw_id = gift.get("id")
+    if raw_id is None or raw_id == "":
+        return None
+    # Telegram callback_data: ≤ 64 bytes total. "ai|" префикс = 3, оставляем 50 для key.
+    key = f"{market}_{str(raw_id)}"[:50]
+    _alert_cache[key] = {"gift": dict(gift), "market": market}
+    # Простая очистка: если переполнили, удаляем 50 самых старых (FIFO).
+    if len(_alert_cache) > _ALERT_CACHE_MAX:
+        for k in list(_alert_cache.keys())[: len(_alert_cache) - _ALERT_CACHE_MAX]:
+            _alert_cache.pop(k, None)
+    return key
+
 
 def _fmt_int(n: float) -> str:
     """Форматирует целое число с пробелом-разделителем тысяч."""
@@ -301,6 +324,87 @@ async def cmd_setwebapp(message: types.Message):
     )
 
 
+@dp.message(Command("ai_test"))
+async def cmd_ai_test(message: types.Message):
+    """Проверяет что AI-провайдер настроен и отвечает."""
+    if not _only_owner(message.from_user.id):
+        return
+    from ai_advisor import get_active_provider, test_provider
+    s = load_settings()
+    provider_name = (s.get("ai_provider") or "off").lower()
+    if provider_name == "off":
+        await message.answer(
+            "🤖 AI-провайдер не выбран.\n\n"
+            "Откройте Mini App → Настройки → 🤖 AI-помощник, выберите Groq или Gemini, "
+            "вставьте API-ключ и сохраните."
+        )
+        return
+    await message.answer(f"🤖 Тестирую {provider_name}…")
+    provider = get_active_provider(s)
+    ok, text = await test_provider(provider)
+    if ok:
+        await message.answer(
+            f"✅ <b>{provider_name}</b> работает\n\n"
+            f"<i>Ответ модели:</i>\n<code>{text[:500]}</code>"
+        )
+    else:
+        await message.answer(f"❌ <b>{provider_name}</b> не отвечает\n\n<i>{text}</i>")
+
+
+@dp.message(Command("digest"))
+async def cmd_digest(message: types.Message):
+    """Шлёт daily digest прямо сейчас (для проверки)."""
+    if not _only_owner(message.from_user.id):
+        return
+    from daily_digest import send_digest_now
+    s = load_settings()
+    window = int(s.get("daily_digest_window_hours", 24))
+    await message.answer(f"📊 Считаю digest за последние {window}ч…")
+    ok = await send_digest_now(message.bot, message.from_user.id, window_hours=window)
+    if not ok:
+        await message.answer("❌ Не удалось сформировать digest. Смотри логи.")
+
+
+@dp.message(Command("ai_ask"))
+async def cmd_ai_ask(message: types.Message):
+    """Свободный диалог с AI. Использование: /ai_ask <вопрос>"""
+    if not _only_owner(message.from_user.id):
+        return
+    from ai_advisor import get_active_provider, free_chat
+    s = load_settings()
+    provider = get_active_provider(s)
+    if provider is None:
+        await message.answer(
+            "🤖 AI-провайдер не настроен.\n\n"
+            "Mini App → Настройки → 🤖 AI-помощник → выбрать провайдер + ключ."
+        )
+        return
+    text = (message.text or "")
+    parts = text.split(maxsplit=1)
+    if len(parts) < 2 or not parts[1].strip():
+        await message.answer(
+            "Использование: <code>/ai_ask &lt;вопрос&gt;</code>\n\n"
+            "Пример: <code>/ai_ask Как сейчас рынок Plush Pepe?</code>"
+        )
+        return
+    question = parts[1].strip()[:1000]
+    placeholder = await message.answer(f"🤖 Думаю над вопросом…")
+    answer = await free_chat(provider, question)
+    if not answer:
+        await placeholder.edit_text(
+            "❌ AI не ответил. Возможно лимит токенов или ошибка ключа. "
+            "Проверьте /ai_test."
+        )
+        return
+    provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
+        (s.get("ai_provider") or "").lower(), "🤖"
+    )
+    await placeholder.edit_text(
+        f"{provider_emoji} <b>AI</b>\n\n{answer[:3500]}",
+        parse_mode="HTML",
+    )
+
+
 @dp.message(Command("rate"))
 async def cmd_rate(message: types.Message):
     """Показывает текущий курс TON/Stars."""
@@ -321,6 +425,47 @@ async def cmd_rate(message: types.Message):
 
 
 # ======================== CALLBACKS ========================
+
+@dp.callback_query(F.data.startswith("ai|"))
+async def cb_ai_ask(callback: CallbackQuery):
+    """On-demand AI-вердикт по клику в алерте."""
+    if not _only_owner(callback.from_user.id):
+        await callback.answer("Доступ только владельцу.", show_alert=False)
+        return
+    cache_key = (callback.data or "")[3:]
+    cached = _alert_cache.get(cache_key)
+    if not cached:
+        await callback.answer(
+            "Лот устарел (бот перезапускался). Откройте новый алерт.",
+            show_alert=True,
+        )
+        return
+    s = load_settings()
+    from ai_advisor import get_active_provider, analyze_gift
+    provider = get_active_provider(s)
+    if provider is None:
+        await callback.answer(
+            "AI не настроен. Откройте Mini App → AI-помощник.",
+            show_alert=True,
+        )
+        return
+    await callback.answer("🤖 Спрашиваю AI…")
+    text = await analyze_gift(provider, cached["gift"], cached["market"], settings=s)
+    if not text:
+        await callback.message.answer(
+            "❌ AI не ответил. Возможно лимит токенов или сетевая ошибка.",
+            reply_to_message_id=callback.message.message_id,
+        )
+        return
+    provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
+        (s.get("ai_provider") or "").lower(), "🤖"
+    )
+    await callback.message.answer(
+        f"{provider_emoji} <i>AI: {text[:1000]}</i>",
+        parse_mode="HTML",
+        reply_to_message_id=callback.message.message_id,
+    )
+
 
 @dp.callback_query(F.data == "back_main")
 async def back_main(callback: CallbackQuery):
@@ -1061,6 +1206,19 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
         gift_url = f"https://t.me/{market}"
         buttons = [[InlineKeyboardButton(text="🔗 Открыть", url=gift_url)]]
 
+    # Кнопка «🤖 Спросить AI» — если AI настроен (пусть и без auto-комментариев),
+    # юзер может тапнуть для on-demand вердикта. callback_data ограничено 64 байта,
+    # поэтому шлём только market+id (id обычно short uuid). Сам gift кэшируется
+    # in-memory в _alert_cache (LRU 200 шт.).
+    s_ai_kb = load_settings()
+    if (s_ai_kb.get("ai_provider") or "off").lower() != "off":
+        cache_key = _cache_alert(gift, market)
+        if cache_key:
+            buttons.append([InlineKeyboardButton(
+                text="🤖 Спросить AI",
+                callback_data=f"ai|{cache_key}",
+            )])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=buttons)
 
     # ── Форматирование текста ────────────────────────────────────────────────
@@ -1136,6 +1294,7 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
         f"🏪 {market_icon}"
     )
 
+    sent_ok = False
     try:
         if image_url:
             try:
@@ -1145,18 +1304,73 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
                     caption=caption,
                     reply_markup=keyboard,
                 )
-                return
+                sent_ok = True
             except Exception:
                 pass  # Fallback на текст
 
-        await bot_instance.send_message(
-            chat_id=chat_id,
-            text=caption,
-            reply_markup=keyboard,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
+        if not sent_ok:
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=keyboard,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
+            sent_ok = True
     except Exception as e:
         logger.error(f"send_gift_alert ошибка: {e}")
+
+    # Логируем алерт для daily digest. Никогда не блокирует основной поток.
+    if sent_ok:
+        try:
+            from database import log_alert
+            log_alert(market, gift)
+        except Exception:
+            logger.exception("send_gift_alert: log_alert провалился")
+
+        # Если включен AI-вердикт для алертов И дисконт достаточный — спросим LLM
+        # асинхронно и пришлём отдельным сообщением (не редактируем оригинальный
+        # алерт чтобы avoid issues с photo-captions). 200-300мс не считается "ждать первым"
+        # потому что запускаем в fire-and-forget после успешной отправки.
+        try:
+            s_ai = load_settings()
+            if s_ai.get("ai_for_alerts"):
+                min_disc = float(s_ai.get("ai_alerts_min_discount_pct", 10.0))
+                if floor_valid:
+                    p = float(gift.get("price") or 0)
+                    f = float(floor)
+                    real_disc = (f - p) / f * 100 if f > 0 and p > 0 else 0
+                else:
+                    real_disc = 0
+                if real_disc >= min_disc or not floor_valid:
+                    asyncio.create_task(_send_ai_verdict(bot_instance, chat_id, gift, market))
+        except Exception:
+            logger.exception("send_gift_alert: AI-вердикт не запустился")
+
+
+async def _send_ai_verdict(bot_instance, chat_id: int, gift: dict, market: str) -> None:
+    """Запрашивает у активного AI-провайдера короткий вердикт и шлёт его как
+    follow-up сообщение под только что отправленным алертом."""
+    try:
+        from ai_advisor import get_active_provider, analyze_gift
+        s = load_settings()
+        provider = get_active_provider(s)
+        if provider is None:
+            return
+        text = await analyze_gift(provider, gift, market, settings=s)
+        if not text:
+            return
+        # Префикс эмодзи зависит от провайдера для прозрачности
+        provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
+            (load_settings().get("ai_provider") or "").lower(), "🤖"
+        )
+        await bot_instance.send_message(
+            chat_id=chat_id,
+            text=f"{provider_emoji} <i>AI: {text}</i>",
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except Exception:
+        logger.exception("_send_ai_verdict: ошибка")
 
 
 async def send_alert(text: str):
