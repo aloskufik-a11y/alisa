@@ -48,14 +48,45 @@ def main():
         logger.info(f"Запуск main.py (попытка #{attempt})")
         start_ts = time.time()
         try:
+            # Стартуем main.py так, чтобы stdout/stderr ребёнка наследовались
+            # супервайзером (то есть PID 1), а значит попадали в stdout контейнера.
+            # На Render/Fly/Koyeb это критично — иначе все логи бота уходят в bot.log
+            # внутри контейнера, и при крашах нечем диагностировать.
+            #
+            # Параллельно поднимаем фоновый writer, который дублирует поток в LOG_FILE
+            # для локальной разработки (и при наличии persistent volume — в /data/bot.log).
             with open(LOG_FILE, "ab", buffering=0) as logf:
                 logf.write(
                     f"\n=== supervisor: starting attempt #{attempt} at {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n".encode()
                 )
-                proc = subprocess.Popen(
-                    [sys.executable, "main.py"],
-                    stdout=logf, stderr=subprocess.STDOUT,
-                )
+            env = os.environ.copy()
+            env.setdefault("PYTHONUNBUFFERED", "1")
+            proc = subprocess.Popen(
+                [sys.executable, "-u", "main.py"],
+                env=env,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                bufsize=1, text=True,
+            )
+
+            # Tee main.py output → stdout (host log capture) + LOG_FILE (debug archive)
+            import threading
+
+            def _tee():
+                try:
+                    with open(LOG_FILE, "a", buffering=1) as logf:
+                        assert proc.stdout is not None
+                        for line in proc.stdout:
+                            sys.stdout.write(line)
+                            sys.stdout.flush()
+                            try:
+                                logf.write(line)
+                            except OSError:
+                                pass
+                except Exception as exc:
+                    logger.warning("tee thread error: %s", exc)
+
+            tee_thread = threading.Thread(target=_tee, name="bot-stdout-tee", daemon=True)
+            tee_thread.start()
 
             while not _should_stop:
                 ret = proc.poll()

@@ -265,8 +265,9 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                                 break  # Больше страниц нет
 
                             cursor = new_cursor
-                            # Маленькая пауза между страницами
-                            await asyncio.sleep(random.uniform(1.5, 3.0))
+                            # Маленькая пауза между страницами. Снижена с 1.5-3s → 0.4-0.8s —
+                            # MRKT спокойно переваривает темп в ~2 req/sec без 429.
+                            await asyncio.sleep(random.uniform(0.4, 0.8))
 
                         elif response.status == 401:
                             logger.warning("MRKT: 401 — пробуем обновить токен...")
@@ -364,6 +365,7 @@ async def process_listings(market: str, listings: list):
     new_count = 0
     alerted_count = 0
     skipped_by_limit = 0
+    pending_alerts: list[dict] = []  # батч для параллельной отправки в конце цикла
 
     for item in listings:
         uid = f"{market}_{item['id']}"
@@ -396,14 +398,28 @@ async def process_listings(market: str, listings: list):
             f"{price_str}{discount_str}"
         )
 
-        await send_gift_alert(bot, USER_ID, item, market=market)
-        try:
-            from feed_store import push as feed_push
-            feed_push(item, market)
-        except Exception:
-            pass
+        # Собираем отправку лениво — весь батч уйдёт параллельно после цикла.
+        # Раньше: sequential await + sleep(0.3) → для 50 алертов = 15s ожидания.
+        # Теперь: батч в asyncio.gather с семафором=8 → обычно <2s.
+        pending_alerts.append(item)
         alerted_count += 1
-        await asyncio.sleep(0.3)  # Антиспам
+
+    # Параллельная отправка всех алертов одного цикла. Семафор=8 — безопасно ниже
+    # Telegram-лимита 30 msg/sec на одного пользователя. aiogram сам обработает RetryAfter.
+    if pending_alerts:
+        sem = asyncio.Semaphore(8)
+        async def _dispatch(it: dict) -> None:
+            async with sem:
+                try:
+                    await send_gift_alert(bot, USER_ID, it, market=market)
+                except Exception:
+                    logger.exception(f"Отправка алерта {market}/{it.get('id')} упала")
+                try:
+                    from feed_store import push as feed_push
+                    feed_push(it, market)
+                except Exception:
+                    pass
+        await asyncio.gather(*(_dispatch(it) for it in pending_alerts), return_exceptions=True)
 
     if new_count:
         msg = f"{market.upper()}: {new_count} новых лотов, {alerted_count} алертов отправлено"
@@ -497,7 +513,8 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                                 page_listings.extend(listings)
                                 if len(listings) < PORTALS_PAGE_SIZE:
                                     break  # последняя страница
-                                await asyncio.sleep(random.uniform(1.5, 3.0))
+                                # 1.5-3s → 0.4-0.8s — после SOL получили ~2x ускорение обхода коллекции на Portals.
+                                await asyncio.sleep(random.uniform(0.4, 0.8))
                             elif response.status == 401:
                                 logger.warning("Portals: 401 — обновляем tgWebAppData")
                                 new_init = await get_tg_web_data(PORTALS_BOT_NAME, PORTALS_WEB_URL)
@@ -525,7 +542,8 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                                 break
 
                     all_listings.extend(page_listings)
-                    await asyncio.sleep(random.uniform(2.0, 4.0))
+                    # 2-4s → 0.5-1s. Portals отдаёт все listings разных коллекций без раздельных лимитов.
+                    await asyncio.sleep(random.uniform(0.5, 1.0))
 
                 # Дедупликация по id
                 if all_listings:

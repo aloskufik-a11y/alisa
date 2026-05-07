@@ -920,8 +920,12 @@ def normalize_market(market: str) -> str:
 DEFAULT_S: dict = {
     "max_price_ton": 50.0,         # Макс. цена в TON (абсолютный потолок)
     "min_price_ton": 0.0,          # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,    # Сколько % сверху от floor допускать (0 = только floor)
-    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%)
+    "floor_tolerance_pct": 0.0,    # Когда strict_below_floor=False: сколько % сверху от floor допускать.
+    "strict_below_floor": True,    # Если True — price ДОЛЖЕН быть строго < floor (равенство не считается выгодой).
+                                   # Покупка точно по полу = ноль профита, поэтому такие лоты по умолчанию не алертим.
+                                   # Установите False, если хотите ловить и price == floor (старое поведение).
+    "min_savings_ton": 0.0,        # Доп. фильтр: абсолютный минимум экономии в TON (floor - price >= этого).
+    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%).
     "require_floor": True,         # Если True — без known floor лот не выгоден
     "filter_rarity": [],           # Белый список редкостей
     "filter_markets": ["mrkt", "fragment", "portals"],
@@ -960,6 +964,26 @@ DEFAULT_S: dict = {
 
     # Mini App URL (для кнопки в /settings)
     "mini_app_url": "",
+
+    # Daily digest
+    "daily_digest_enabled":      True,
+    "daily_digest_hour_utc":     6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date":          "",
+
+    # Ультра-редкие лоты — Fast-lane bypass
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
+
+    # AI helper
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    "ai_for_alerts":            False,
+    "ai_for_digest":            True,
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 
@@ -1085,6 +1109,20 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     if max_price_ton > 0 and price > max_price_ton:
         return False
 
+    # 2b. Ультра-редкие лоты — Fast lane.
+    # Если включено rare_priority_enabled И у лота есть атрибут ≤ rare_priority_pm,
+    # пропускаем все остальные фильтры. Это даёт пользователю «быть первым» на самые
+    # редкие лоты независимо от других настроек (max_discount, watchlist, mono, и т.д.).
+    # Цена при этом остаётся в диапазоне [min_price, max_price] из выше — это
+    # фундаментальный потолок, чтобы 1000 TON ультра-редкость не пришла случайно.
+    rare_priority_enabled = bool(s.get("rare_priority_enabled", True))
+    rare_priority_pm = float(s.get("rare_priority_pm", 5.0) or 0)
+    if rare_priority_enabled and rare_priority_pm > 0:
+        rar = gift_data.get("rarities_pm") or {}
+        for v in rar.values():
+            if isinstance(v, (int, float)) and 0 < v <= rare_priority_pm:
+                return True  # ⚡ Fast-lane bypass
+
     # 3. Floor-aware: лот должен быть на полу или у пола
     floor = gift_data.get("floor_price")
     floor_valid = isinstance(floor, (int, float)) and floor > 0
@@ -1120,10 +1158,29 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
 
     if not bypass_floor:
         if floor_valid:
-            max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
-            # +0.000001 запас на ошибки округления
-            if price > max_allowed + 1e-6:
-                return False
+            floor_f = float(floor)
+            strict_below = bool(s.get("strict_below_floor", DEFAULT_S["strict_below_floor"]))
+            min_savings_ton = float(s.get("min_savings_ton", DEFAULT_S["min_savings_ton"]) or 0.0)
+
+            if strict_below:
+                # Цена должна быть СТРОГО ниже floor (даже на 1 nanoTON).
+                # 1e-6 — компенсация ошибок округления (TON хранится с 9 знаками,
+                # бот округляет до 6 — эпсилон достаточно мал, чтобы не ловить
+                # реальные равенства, но достаточно велик, чтобы не путать price==floor
+                # с price = floor - 0.0000001).
+                if price >= floor_f - 1e-6:
+                    return False
+            else:
+                max_allowed = floor_f * (1.0 + floor_tolerance_pct / 100.0)
+                if price > max_allowed + 1e-6:
+                    return False
+
+            # Абсолютный минимум экономии в TON.
+            # Применяется ВНЕ зависимости от strict_below_floor — это дополнительный
+            # порог: "меньше N TON экономии не алерти, даже если технически ниже floor".
+            if min_savings_ton > 0:
+                if (floor_f - price) < min_savings_ton - 1e-6:
+                    return False
         elif require_floor:
             # Без known floor мы не можем гарантировать выгодность
             return False
