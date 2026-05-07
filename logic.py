@@ -1156,36 +1156,47 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         (bd_lc and bd_lc in wl_bds)
     )
 
-    bypass_floor = is_rare_listing or is_watched
+    # bypass_floor разрешает обход только floor_tolerance_pct и require_floor.
+    # strict_below_floor и min_savings_ton являются АВТОРИТАТИВНЫМИ — если юзер
+    # включил их явно, никакой watchlist/rare-режим не должен их обходить.
+    # Иначе watchlist превращался в "алерт по любой цене", и пользователь
+    # удивляется почему его настройка strict_below_floor игнорируется.
+    bypass_floor_tolerance = is_rare_listing or is_watched
 
-    if not bypass_floor:
-        if floor_valid:
-            floor_f = float(floor)
-            strict_below = bool(s.get("strict_below_floor", DEFAULT_S["strict_below_floor"]))
-            min_savings_ton = float(s.get("min_savings_ton", DEFAULT_S["min_savings_ton"]) or 0.0)
+    if floor_valid:
+        floor_f = float(floor)
+        strict_below = bool(s.get("strict_below_floor", DEFAULT_S["strict_below_floor"]))
+        min_savings_ton = float(s.get("min_savings_ton", DEFAULT_S["min_savings_ton"]) or 0.0)
 
-            if strict_below:
-                # Цена должна быть СТРОГО ниже floor (даже на 1 nanoTON).
-                # 1e-6 — компенсация ошибок округления (TON хранится с 9 знаками,
-                # бот округляет до 6 — эпсилон достаточно мал, чтобы не ловить
-                # реальные равенства, но достаточно велик, чтобы не путать price==floor
-                # с price = floor - 0.0000001).
-                if price >= floor_f - 1e-6:
-                    return False
-            else:
-                max_allowed = floor_f * (1.0 + floor_tolerance_pct / 100.0)
-                if price > max_allowed + 1e-6:
-                    return False
+        if strict_below:
+            # Цена должна быть СТРОГО ниже floor (даже на 1 nanoTON).
+            # 1e-6 — компенсация ошибок округления (TON хранится с 9 знаками,
+            # бот округляет до 6 — эпсилон достаточно мал, чтобы не ловить
+            # реальные равенства, но достаточно велик, чтобы не путать price==floor
+            # с price = floor - 0.0000001).
+            if price >= floor_f - 1e-6:
+                return False
+        elif not bypass_floor_tolerance:
+            # Когда strict_below=false, floor_tolerance_pct может разрешать
+            # «чуть выше floor». Watchlist/recent_rare обходят только эту
+            # «мягкую» проверку, чтобы юзер ловил наблюдаемые подарки даже
+            # без скидки. strict_below их не пускает.
+            max_allowed = floor_f * (1.0 + floor_tolerance_pct / 100.0)
+            if price > max_allowed + 1e-6:
+                return False
 
-            # Абсолютный минимум экономии в TON.
-            # Применяется ВНЕ зависимости от strict_below_floor — это дополнительный
-            # порог: "меньше N TON экономии не алерти, даже если технически ниже floor".
-            if min_savings_ton > 0:
-                if (floor_f - price) < min_savings_ton - 1e-6:
-                    return False
-        elif require_floor:
-            # Без known floor мы не можем гарантировать выгодность
-            return False
+        # Абсолютный минимум экономии в TON.
+        # Применяется ВНЕ зависимости от strict_below_floor — это дополнительный
+        # порог: "меньше N TON экономии не алерти, даже если технически ниже floor".
+        if min_savings_ton > 0:
+            if (floor_f - price) < min_savings_ton - 1e-6:
+                return False
+    elif require_floor and not bypass_floor_tolerance:
+        # Без known floor мы не можем гарантировать выгодность.
+        # Watchlist/recent_rare обходят это: они сами авторитативны.
+        return False
+    # Алиас для обратной совместимости с условием ниже (min_discount_pct).
+    bypass_floor = bypass_floor_tolerance
 
     # 4. Минимальная скидка от floor (если требуется). Watchlist и rare-режим обходят.
     min_discount = int(s.get("min_discount_pct", 0))

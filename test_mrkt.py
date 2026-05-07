@@ -421,6 +421,33 @@ try:
     test("is_profitable: НЕ редкий, discount=3.3% < min_disc=50 → False",
          not is_profitable(normal_low_discount, "mrkt"))
 
+    # === Регрессия: watchlist НЕ должен обходить strict_below_floor ===
+    s = DEFAULTS.copy()
+    s["strict_below_floor"] = True
+    s["watchlist_models"] = ["Olympia"]
+    s["rare_priority_enabled"] = False
+    settings_store.save_settings(s)
+    watch_above = {"price": 100.0, "floor_price": 30.0,
+                   "model_name": "Olympia", "rarities_pm": {}}
+    test("is_profitable: watchlist+price>floor+strict → False (strict авторитативен)",
+         not is_profitable(watch_above, "mrkt"))
+    watch_below = {"price": 25.0, "floor_price": 30.0,
+                   "model_name": "Olympia", "rarities_pm": {}}
+    test("is_profitable: watchlist+price<floor+strict → True",
+         is_profitable(watch_below, "mrkt"))
+
+    # === Регрессия: recent_rare_mode НЕ должен обходить strict_below_floor ===
+    s = DEFAULTS.copy()
+    s["strict_below_floor"] = True
+    s["recent_rare_mode"] = True
+    s["recent_rare_pm"] = 5.0
+    s["rare_priority_enabled"] = False
+    settings_store.save_settings(s)
+    rec_rare_above = {"price": 100.0, "floor_price": 30.0,
+                      "rarities_pm": {"model": 1.0}}
+    test("is_profitable: recent_rare+price>floor+strict → False",
+         not is_profitable(rec_rare_above, "mrkt"))
+
     # === require_floor ===
     s = DEFAULTS.copy(); s["require_floor"] = True
     settings_store.save_settings(s)
