@@ -338,7 +338,8 @@ try:
     from logic import is_profitable
     import settings_store
 
-    # Сбрасываем настройки на дефолтные для воспроизводимости
+    # Сбрасываем настройки на дефолтные для воспроизводимости.
+    # rare_priority_enabled явно выключаем — былбы fast-lane bypass ломает фильтры.
     DEFAULTS = {
         "max_price_ton": 50.0,
         "floor_tolerance_pct": 0.0,
@@ -347,6 +348,7 @@ try:
         "filter_rarity": [],
         "filter_markets": ["mrkt", "fragment", "portals"],
         "notifications_on": True,
+        "rare_priority_enabled": False,
     }
     settings_store.save_settings(DEFAULTS.copy())
 
@@ -796,6 +798,7 @@ try:
         "number_filters": [],
         "max_rarity_pm": 0,
         "notifications_on": True,
+        "rare_priority_enabled": False,  # иначе fast-lane bypass сыплет все фильтрры
     }
 
     def with_settings(**overrides):
