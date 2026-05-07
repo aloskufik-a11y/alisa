@@ -920,8 +920,12 @@ def normalize_market(market: str) -> str:
 DEFAULT_S: dict = {
     "max_price_ton": 50.0,         # Макс. цена в TON (абсолютный потолок)
     "min_price_ton": 0.0,          # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,    # Сколько % сверху от floor допускать (0 = только floor)
-    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%)
+    "floor_tolerance_pct": 0.0,    # Когда strict_below_floor=False: сколько % сверху от floor допускать.
+    "strict_below_floor": True,    # Если True — price ДОЛЖЕН быть строго < floor (равенство не считается выгодой).
+                                   # Покупка точно по полу = ноль профита, поэтому такие лоты по умолчанию не алертим.
+                                   # Установите False, если хотите ловить и price == floor (старое поведение).
+    "min_savings_ton": 0.0,        # Доп. фильтр: абсолютный минимум экономии в TON (floor - price >= этого).
+    "min_discount_pct": 0,         # Доп. фильтр: мин. скидка от Floor (%).
     "require_floor": True,         # Если True — без known floor лот не выгоден
     "filter_rarity": [],           # Белый список редкостей
     "filter_markets": ["mrkt", "fragment", "portals"],
@@ -960,6 +964,26 @@ DEFAULT_S: dict = {
 
     # Mini App URL (для кнопки в /settings)
     "mini_app_url": "",
+
+    # Daily digest
+    "daily_digest_enabled":      True,
+    "daily_digest_hour_utc":     6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date":          "",
+
+    # Ультра-редкие лоты — Fast-lane bypass
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
+
+    # AI helper
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    "ai_for_alerts":            False,
+    "ai_for_digest":            True,
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 
@@ -1085,6 +1109,22 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     if max_price_ton > 0 and price > max_price_ton:
         return False
 
+    # 2b. Ультра-редкие лоты — определяем флаг для Fast lane.
+    # Если включено rare_priority_enabled И у лота есть атрибут ≤ rare_priority_pm,
+    # помечаем лот как "ультра-редкий". Это пропустит ВТОРИЧНЫЕ фильтры
+    # (discount %, mono, watchlist, max_rarity_pm, recent_rare),
+    # но НЕ обходит фундаментальные ценовые/floor-проверки. Иначе бы лот
+    # с price > floor алертил «потому что редкий», что путает юзера.
+    rare_priority_enabled = bool(s.get("rare_priority_enabled", True))
+    rare_priority_pm = float(s.get("rare_priority_pm", 5.0) or 0)
+    is_ultra_rare = False
+    if rare_priority_enabled and rare_priority_pm > 0:
+        rar = gift_data.get("rarities_pm") or {}
+        for v in rar.values():
+            if isinstance(v, (int, float)) and 0 < v <= rare_priority_pm:
+                is_ultra_rare = True
+                break
+
     # 3. Floor-aware: лот должен быть на полу или у пола
     floor = gift_data.get("floor_price")
     floor_valid = isinstance(floor, (int, float)) and floor > 0
@@ -1116,57 +1156,90 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         (bd_lc and bd_lc in wl_bds)
     )
 
-    bypass_floor = is_rare_listing or is_watched
+    # bypass_floor разрешает обход только floor_tolerance_pct и require_floor.
+    # strict_below_floor и min_savings_ton являются АВТОРИТАТИВНЫМИ — если юзер
+    # включил их явно, никакой watchlist/rare-режим не должен их обходить.
+    # Иначе watchlist превращался в "алерт по любой цене", и пользователь
+    # удивляется почему его настройка strict_below_floor игнорируется.
+    bypass_floor_tolerance = is_rare_listing or is_watched
 
-    if not bypass_floor:
-        if floor_valid:
-            max_allowed = float(floor) * (1.0 + floor_tolerance_pct / 100.0)
-            # +0.000001 запас на ошибки округления
+    if floor_valid:
+        floor_f = float(floor)
+        strict_below = bool(s.get("strict_below_floor", DEFAULT_S["strict_below_floor"]))
+        min_savings_ton = float(s.get("min_savings_ton", DEFAULT_S["min_savings_ton"]) or 0.0)
+
+        if strict_below:
+            # Цена должна быть СТРОГО ниже floor (даже на 1 nanoTON).
+            # 1e-6 — компенсация ошибок округления (TON хранится с 9 знаками,
+            # бот округляет до 6 — эпсилон достаточно мал, чтобы не ловить
+            # реальные равенства, но достаточно велик, чтобы не путать price==floor
+            # с price = floor - 0.0000001).
+            if price >= floor_f - 1e-6:
+                return False
+        elif not bypass_floor_tolerance:
+            # Когда strict_below=false, floor_tolerance_pct может разрешать
+            # «чуть выше floor». Watchlist/recent_rare обходят только эту
+            # «мягкую» проверку, чтобы юзер ловил наблюдаемые подарки даже
+            # без скидки. strict_below их не пускает.
+            max_allowed = floor_f * (1.0 + floor_tolerance_pct / 100.0)
             if price > max_allowed + 1e-6:
                 return False
-        elif require_floor:
-            # Без known floor мы не можем гарантировать выгодность
-            return False
+
+        # Абсолютный минимум экономии в TON.
+        # Применяется ВНЕ зависимости от strict_below_floor — это дополнительный
+        # порог: "меньше N TON экономии не алерти, даже если технически ниже floor".
+        if min_savings_ton > 0:
+            if (floor_f - price) < min_savings_ton - 1e-6:
+                return False
+    elif require_floor and not bypass_floor_tolerance:
+        # Без known floor мы не можем гарантировать выгодность.
+        # Watchlist/recent_rare обходят это: они сами авторитативны.
+        return False
+    # Алиас для обратной совместимости с условием ниже (min_discount_pct).
+    bypass_floor = bypass_floor_tolerance
 
     # 4. Минимальная скидка от floor (если требуется). Watchlist и rare-режим обходят.
     min_discount = int(s.get("min_discount_pct", 0))
-    if min_discount > 0 and not bypass_floor:
+    if min_discount > 0 and not bypass_floor and not is_ultra_rare:
         if not floor_valid:
             return False
         discount_pct = (float(floor) - price) / float(floor) * 100.0
         if discount_pct < min_discount:
             return False
 
-    # 5. Редкость (текстовая)
+    # 5. Редкость (текстовая) — ультра-редким это пропускаем (они и так редкие)
     rarity_filter = s.get("filter_rarity", [])
-    if rarity_filter:
+    if rarity_filter and not is_ultra_rare:
         rarity = gift_data.get("rarity", "")
         if not rarity or rarity not in rarity_filter:
             return False
 
-    # 6. Коллекция (если задан белый список)
+    # 6. Коллекция (если задан белый список) — collection-фильтр оставляем
+    # даже для ультра-редких: если юзер ограничил себя 3 коллекциями, он не хочет
+    # получать алерты по другим коллекциям, даже редкие.
     col_filter = s.get("filter_collections", [])
     if col_filter:
         gift_name = (gift_data.get("name") or "").strip()
         if not gift_name or gift_name not in col_filter:
             return False
 
-    # 7. Фильтры по номеру подарка (OR)
+    # 7. Фильтры по номеру подарка (OR) — number-фильтр аналогично оставляем
     number_filters = s.get("number_filters", [])
     if number_filters:
         cats = number_categories(gift_data.get("number"))
         if not cats.intersection(number_filters):
             return False
 
-    # 8. Монохромный backdrop
-    if bool(s.get("monochrome_only", False)):
+    # 8. Монохромный backdrop — ультра-редким пропускаем
+    if bool(s.get("monochrome_only", False)) and not is_ultra_rare:
         colors = gift_data.get("colors") or []
         if not is_monochrome(colors):
             return False
 
-    # 9. Редкий атрибут (минимальный per-mille)
+    # 9. Редкий атрибут (минимальный per-mille). Если is_ultra_rare=True,
+    # значит лот уже прошёл более жёсткий порог rare_priority_pm — не дублируем.
     max_rarity_pm = float(s.get("max_rarity_pm", 0) or 0)
-    if max_rarity_pm > 0:
+    if max_rarity_pm > 0 and not is_ultra_rare:
         rar_pm = gift_data.get("rarities_pm") or {}
         # Хотя бы один из атрибутов должен быть ≤ порога
         ok = False
