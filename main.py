@@ -227,6 +227,21 @@ async def main():
 
     asyncio.create_task(periodic_self_ping(), name="self_ping")
 
+    # 8f. Daily digest scheduler — раз в сутки шлёт summary за прошедшие 24ч.
+    # Час отправки конфигурируется в Mini App settings (daily_digest_hour_utc, default 6).
+    try:
+        from daily_digest import start_digest_scheduler
+        from notifier import bot as _bot
+        from config import USER_ID as _user_id
+        if _user_id:
+            asyncio.create_task(
+                start_digest_scheduler(_bot, _user_id),
+                name="daily_digest",
+            )
+            logger.info("Daily digest scheduler запланирован")
+    except Exception:
+        logger.exception("Не удалось запустить daily digest scheduler")
+
     # 8a. Web App HTTP сервер.
     # Поднимаем если задан WEBAPP_PORT (локально) или PORT (Render/Railway/etc).
     # На Render free Web Service бот ОБЯЗАН слушать $PORT, иначе контейнер

@@ -61,6 +61,19 @@ DEFAULT_SETTINGS: dict = {
     # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
     # Пустая строка = кнопка скрыта.
     "mini_app_url": "",
+
+    # Daily digest — раз в сутки шлёт топ-сделок и стату.
+    "daily_digest_enabled":     True,
+    "daily_digest_hour_utc":    6,      # 6 UTC ≈ 09:00 МСК / 12:00 Дубай. 0-23.
+    "daily_digest_window_hours": 24,
+    # Внутренний state — дата последней отправки (YYYY-MM-DD), не редактируется через UI.
+    "last_digest_date":         "",
+
+    # Ультра-редкие лоты — Fast lane: при наличии хотя бы одного атрибута ≤ rare_priority_pm
+    # алерт идёт мимо обычных фильтров (max_price, min_discount, watchlist, …).
+    # Альтернативная семантика recent_rare_mode который требует price > floor условие.
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)
