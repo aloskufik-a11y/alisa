@@ -393,6 +393,34 @@ try:
     test("is_profitable: 28 при floor=30, min_savings=1.0 → True (экономия 2.0 >= 1.0)",
          is_profitable({"price": 28.0, "floor_price": 30.0}, "mrkt"))
 
+    # === Регрессия: rare_priority НЕ должен обходить floor-проверки ===
+    # Юзер пожаловался: «когда ставлю минимум цену над флор, бот всё равно алертит».
+    # Причина: до фикса rare_priority_enabled=true (default) делал bypass всех
+    # фильтров включая strict_below_floor. Теперь is_ultra_rare обходит только
+    # вторичные фильтры (mono, watchlist, max_rarity_pm, min_discount_pct), но
+    # не цены и floor.
+    s = DEFAULTS.copy()
+    s["rare_priority_enabled"] = True
+    s["rare_priority_pm"] = 5.0
+    s["strict_below_floor"] = True
+    settings_store.save_settings(s)
+    rare_gift = {"price": 100.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) НО price=100 > floor=30 → False (rare НЕ обходит floor)",
+         not is_profitable(rare_gift, "mrkt"))
+    rare_below = {"price": 25.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) И price=25 < floor=30 → True",
+         is_profitable(rare_below, "mrkt"))
+    # rare-priority обходит min_discount_pct когда цена ниже floor.
+    s["min_discount_pct"] = 50  # требуем -50%
+    settings_store.save_settings(s)
+    rare_low_discount = {"price": 29.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰), discount=3.3% < min_disc=50 → True (rare обходит discount)",
+         is_profitable(rare_low_discount, "mrkt"))
+    # обычный лот с discount<min_discount → False
+    normal_low_discount = {"price": 29.0, "floor_price": 30.0}
+    test("is_profitable: НЕ редкий, discount=3.3% < min_disc=50 → False",
+         not is_profitable(normal_low_discount, "mrkt"))
+
     # === require_floor ===
     s = DEFAULTS.copy(); s["require_floor"] = True
     settings_store.save_settings(s)
