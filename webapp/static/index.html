@@ -1945,12 +1945,51 @@ function renderSettings() {
       ` : ''}
 
       ${(s.ai_provider && s.ai_provider !== 'off') ? `
+        <div class="setting">
+          <div class="setting-label">
+            <span class="setting-name">Стиль анализа</span>
+            <span class="setting-hint">AI настраивает приоритеты под ваш стиль торговли.</span>
+          </div>
+          <select class="ai-select" id="sel_ai_persona"
+                  onchange="onAiPersonaChange(this.value)">
+            <option value="balanced"   ${(s.ai_persona || 'balanced') === 'balanced' ? 'selected' : ''}>⚖️ Балансированный (по умолчанию)</option>
+            <option value="trader"     ${s.ai_persona === 'trader' ? 'selected' : ''}>📈 Трейдер (флипы +5-15%)</option>
+            <option value="speculator" ${s.ai_persona === 'speculator' ? 'selected' : ''}>🎲 Спекулянт (агрессивно)</option>
+            <option value="collector"  ${s.ai_persona === 'collector' ? 'selected' : ''}>🏛 Коллекционер (редкости)</option>
+            <option value="custom"     ${s.ai_persona === 'custom' ? 'selected' : ''}>✏️ Свой prompt (ниже)</option>
+          </select>
+        </div>
+
+        ${(s.ai_persona === 'custom') ? `
+          <div class="setting setting--col">
+            <div class="setting-label">
+              <span class="setting-name">Свой prompt</span>
+              <span class="setting-hint">Опишите как AI должен оценивать лоты. Например: «Я ищу только Plush Pepe и Durov's Cap, остальное SKIP. Профит цель +20%».</span>
+            </div>
+            <textarea id="ai_custom_prompt" class="ai-input" rows="4" maxlength="800"
+              style="font-family: inherit; resize: vertical;"
+              placeholder="Опиши свои критерии оценки лотов…"
+              oninput="patchSetting('ai_custom_prompt', this.value)">${escapeHtml(s.ai_custom_prompt || '')}</textarea>
+          </div>
+        ` : ''}
+
         ${toggleRow('AI-комментарий под алертами', 'ai_for_alerts', !!s.ai_for_alerts,
           'К каждому алерту бот добавит короткий вердикт от AI: BUY / HOLD / SKIP с причиной.')}
         ${stepperRow('Мин. дисконт для AI (%)', 'ai_alerts_min_discount_pct', s.ai_alerts_min_discount_pct ?? 10, 0, 99, 1,
           'AI-вердикт срабатывает только для алертов с ≥ N% дисконт от floor — экономит токены.')}
         ${toggleRow('AI-брифинг в Daily Digest', 'ai_for_digest', s.ai_for_digest !== false,
           'AI прокомментирует общее настроение рынка в начале дайджеста.')}
+
+        <div class="setting setting--col">
+          <div class="setting-label">
+            <span class="setting-name">Команды бота</span>
+            <span class="setting-hint">
+              <code>/ai_test</code> — проверить ключ.<br>
+              <code>/ai_ask &lt;вопрос&gt;</code> — свободный диалог с AI.<br>
+              Также под каждым алертом теперь есть кнопка «🤖 Спросить AI» — on-demand анализ без auto-комментариев.
+            </span>
+          </div>
+        </div>
       ` : ''}
     </div>
 
@@ -2281,6 +2320,15 @@ function selectRow(label, key, value, options, hint = '') {
 function onAiProviderChange(value) {
   patchSetting('ai_provider', value);
   if (state.settings) state.settings.ai_provider = value;
+  renderSettings();
+  tg?.HapticFeedback?.selectionChanged();
+}
+
+// Смена AI-persona: то же самое, но для persona — нужно для показа/скрытия
+// textarea кастомного промпта.
+function onAiPersonaChange(value) {
+  patchSetting('ai_persona', value);
+  if (state.settings) state.settings.ai_persona = value;
   renderSettings();
   tg?.HapticFeedback?.selectionChanged();
 }
