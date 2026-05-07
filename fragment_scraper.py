@@ -140,8 +140,9 @@ async def _fetch_all_orders(session: aiohttp.ClientSession) -> list:
         for g in gifts:
             uid = f"fragment_{g.get('id')}"
             all_gifts[uid] = g
-        # Небольшая пауза между запросами, чтобы не словить 429
-        await asyncio.sleep(random.uniform(2, 5))
+        # Небольшая пауза между запросами, чтобы не словить 429.
+        # Снижена с 2-5s → 0.7-1.5s — Fragment HTML rate-limit заметно мягче чем MRKT API.
+        await asyncio.sleep(random.uniform(0.7, 1.5))
     return list(all_gifts.values())
 
 
@@ -210,6 +211,7 @@ async def start_fragment_monitor():
                 new_count = 0
                 alerted_count = 0
                 skipped_by_limit = 0
+                pending_alerts: list[dict] = []
                 for gift in gifts:
                     uid = f"fragment_{gift['id']}"
 
@@ -234,19 +236,32 @@ async def start_fragment_monitor():
                         f"#{gift.get('number', '?')} "
                         f"— {format_price(gift['price'])}{stars_info}"
                     )
+                    pending_alerts.append(gift)
+                    alerted_count += 1
 
-                    try:
-                        from notifier import send_gift_alert, bot
-                        from config import USER_ID
-                        await send_gift_alert(bot, USER_ID, gift, market="fragment")
-                        alerted_count += 1
-                        try:
-                            from feed_store import push as feed_push
-                            feed_push(gift, "fragment")
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        logger.exception(f"Fragment notify error: {e}")
+                # Параллельная отправка пачки. См. mini_app_scraper.process_listings —
+                # тот же паттерн: одна семафор-обёртка, сем=8 безопасно по rate-limit Telegram.
+                if pending_alerts:
+                    from notifier import send_gift_alert, bot
+                    from config import USER_ID
+                    sem = asyncio.Semaphore(8)
+
+                    async def _dispatch(g: dict) -> None:
+                        async with sem:
+                            try:
+                                await send_gift_alert(bot, USER_ID, g, market="fragment")
+                            except Exception:
+                                logger.exception(f"Fragment notify error for {g.get('id')}")
+                            try:
+                                from feed_store import push as feed_push
+                                feed_push(g, "fragment")
+                            except Exception:
+                                pass
+
+                    await asyncio.gather(
+                        *(_dispatch(g) for g in pending_alerts),
+                        return_exceptions=True,
+                    )
 
                 if new_count:
                     msg = (
