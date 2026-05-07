@@ -88,6 +88,17 @@ DEFAULT_SETTINGS: dict = {
     # Sanity-потолок: AI добавляется только в алерты с дисконтом ≥ ai_alerts_min_discount_pct,
     # чтобы не перегружать билинг при больших циклах.
     "ai_alerts_min_discount_pct": 10.0,
+
+    # AI-persona — стиль анализа. Варианты:
+    #   "balanced"   — сбалансированный (default)
+    #   "trader"     — флипы +5-15%, ликвидность
+    #   "speculator" — агрессивные сделки, ≥20% дисконт
+    #   "collector"  — редкости, не сиюминутный профит
+    #   "custom"     — кастомный prompt из ai_custom_prompt
+    "ai_persona":               "balanced",
+    # Кастомный system prompt для AI (≤ 800 символов). Если ai_persona == "custom",
+    # этот prompt заменяет встроенный. Если пустой — fallback на balanced.
+    "ai_custom_prompt":         "",
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

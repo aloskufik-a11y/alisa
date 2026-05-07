@@ -984,6 +984,8 @@ DEFAULT_S: dict = {
     "ai_for_alerts":            False,
     "ai_for_digest":            True,
     "ai_alerts_min_discount_pct": 10.0,
+    "ai_persona":               "balanced",
+    "ai_custom_prompt":         "",
 }
 
 

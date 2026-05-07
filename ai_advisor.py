@@ -3,6 +3,8 @@ AI advisor — обёртка над LLM-провайдерами Groq и Google
 Используется для:
 1. Кратких комментариев под каждым алертом ("стоит ли брать") — async, не блокирует
 2. Аналитики дня в начале daily digest
+3. On-demand вердикт по нажатию кнопки "🤖 Спросить AI" в алерте
+4. /ai_ask <вопрос> — свободный диалог с AI (контекст: рынок NFT-подарков)
 
 Архитектура:
 - BaseProvider — protocol с одним методом async chat(messages, **kw) -> str
@@ -10,9 +12,11 @@ AI advisor — обёртка над LLM-провайдерами Groq и Google
 - get_active_provider(settings) -> BaseProvider | None
 - analyze_gift(provider, gift, context) -> str
 - analyze_daily(provider, digest_stats) -> str
+- free_chat(provider, question) -> str
 
+Persona-профили: trader / speculator / collector / custom — разный тон и приоритеты.
 Все ошибки сетевые/auth/quota не ронят бот — функции возвращают пустую строку
-и логируют warning.
+и логируют warning. aiohttp.ClientSession переиспользуется (один на провайдер).
 """
 from __future__ import annotations
 
@@ -23,6 +27,22 @@ from typing import Any
 import aiohttp
 
 logger = logging.getLogger(__name__)
+
+
+# Один shared connector на процесс — экономит TCP handshakes.
+# keepalive_timeout=60 — Groq/Gemini держат соединение ~60s.
+_shared_session: aiohttp.ClientSession | None = None
+
+
+async def _get_session() -> aiohttp.ClientSession:
+    """Lazy-init shared aiohttp session. Не закрываем — живёт до конца процесса."""
+    global _shared_session
+    if _shared_session is None or _shared_session.closed:
+        _shared_session = aiohttp.ClientSession(
+            connector=aiohttp.TCPConnector(limit=10, keepalive_timeout=60),
+            timeout=aiohttp.ClientTimeout(total=15),
+        )
+    return _shared_session
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -70,19 +90,18 @@ class GroqProvider:
             "temperature": temperature,
         }
         try:
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    self.BASE_URL,
-                    json=payload,
-                    headers={"Authorization": f"Bearer {self.api_key}"},
-                ) as resp:
-                    if resp.status != 200:
-                        body = (await resp.text())[:300]
-                        logger.warning(f"Groq API {resp.status}: {body}")
-                        return ""
-                    data = await resp.json()
-                    return (data["choices"][0]["message"]["content"] or "").strip()
+            session = await _get_session()
+            async with session.post(
+                self.BASE_URL,
+                json=payload,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            ) as resp:
+                if resp.status != 200:
+                    body = (await resp.text())[:300]
+                    logger.warning(f"Groq API {resp.status}: {body}")
+                    return ""
+                data = await resp.json()
+                return (data["choices"][0]["message"]["content"] or "").strip()
         except asyncio.TimeoutError:
             logger.warning("Groq API: timeout")
             return ""
@@ -119,20 +138,19 @@ class GeminiProvider:
             },
         }
         try:
-            timeout = aiohttp.ClientTimeout(total=15)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(url, json=payload) as resp:
-                    if resp.status != 200:
-                        body = (await resp.text())[:300]
-                        logger.warning(f"Gemini API {resp.status}: {body}")
-                        return ""
-                    data = await resp.json()
-                    candidates = data.get("candidates") or []
-                    if not candidates:
-                        return ""
-                    parts = candidates[0].get("content", {}).get("parts") or []
-                    text = "".join(p.get("text", "") for p in parts).strip()
-                    return text
+            session = await _get_session()
+            async with session.post(url, json=payload) as resp:
+                if resp.status != 200:
+                    body = (await resp.text())[:300]
+                    logger.warning(f"Gemini API {resp.status}: {body}")
+                    return ""
+                data = await resp.json()
+                candidates = data.get("candidates") or []
+                if not candidates:
+                    return ""
+                parts = candidates[0].get("content", {}).get("parts") or []
+                text = "".join(p.get("text", "") for p in parts).strip()
+                return text
         except asyncio.TimeoutError:
             logger.warning("Gemini API: timeout")
             return ""
@@ -171,18 +189,70 @@ def get_active_provider(settings: dict) -> Any | None:
 # Prompts
 # ──────────────────────────────────────────────────────────────────────────────
 
-GIFT_VERDICT_SYSTEM = """\
-Ты — эксперт по NFT-подаркам Telegram. Анализируешь конкретный лот для трейдера.
-Отвечай КРАТКО (1-3 предложения, < 250 знаков), на русском, без воды.
-Указывай: стоит ли брать (BUY / HOLD / SKIP), почему, и потенциальный профит/риск.
-Используй только данные которые тебе передали. Если данных мало — скажи об этом.
-Не используй markdown, заголовки, списки. Только сплошной текст."""
+# ──────────────────────────────────────────────────────────────────────────────
+# Persona-профили — пользователь выбирает в Mini App, prompt подстраивается под его стиль.
+# ──────────────────────────────────────────────────────────────────────────────
+AI_PERSONAS = {
+    "trader": {
+        "label": "📈 Трейдер (флипы +5-15%)",
+        "system": "Ты — опытный трейдер NFT-подарков Telegram. Цель — флип за 1-3 дня "
+                  "с прибылью +5-15%. Оцениваешь ликвидность, скорость продажи, риск "
+                  "падения floor. BUY = можно перепродать +10% за 48ч; HOLD = ждать "
+                  "лучшей цены; SKIP = риск стака на бирже.",
+    },
+    "speculator": {
+        "label": "🎲 Спекулянт (агрессивные сделки)",
+        "system": "Ты — агрессивный спекулянт NFT-подарков. Ищешь дисконты ≥20% и "
+                  "редкие модели для быстрой перепродажи с большим профитом. Игнорируй "
+                  "малоценные сделки. BUY = очень выгодно, рекомендуешь брать сразу.",
+    },
+    "collector": {
+        "label": "🏛 Коллекционер (редкости)",
+        "system": "Ты — коллекционер редких NFT-подарков. Главное — уникальные "
+                  "атрибуты (rare model/backdrop/symbol), а не сиюминутный профит. "
+                  "BUY = редкость которую не повторить; SKIP = массовый лот без "
+                  "уникальных атрибутов.",
+    },
+    "balanced": {
+        "label": "⚖️ Балансированный (по умолчанию)",
+        "system": "Ты — эксперт по NFT-подаркам Telegram. Анализируешь конкретный лот "
+                  "для трейдера. Указывай: стоит ли брать (BUY / HOLD / SKIP), почему, "
+                  "и потенциальный профит/риск.",
+    },
+    "custom": {
+        "label": "✏️ Свой prompt",
+        "system": "",  # заменяется на ai_custom_prompt из настроек
+    },
+}
+
+GIFT_VERDICT_FORMAT = (
+    " Отвечай КРАТКО (1-3 предложения, < 250 знаков), на русском, без воды. "
+    "Используй только переданные данные. Если данных мало — скажи об этом. "
+    "Не используй markdown, заголовки, списки. Только сплошной текст."
+)
 
 DIGEST_SUMMARY_SYSTEM = """\
 Ты — аналитик NFT-маркета подарков Telegram. На входе — статистика за день.
 Дай КРАТКИЙ (3-5 предложений, < 600 знаков) брифинг на русском про общее настроение
 рынка, какие коллекции трендят, и что советуешь делать трейдеру в ближайшие 24ч.
 Не используй markdown, заголовки, списки. Только связный текст."""
+
+FREE_CHAT_SYSTEM = """\
+Ты — помощник трейдера NFT-подарков Telegram. Отвечаешь на свободные вопросы
+про маркеты MRKT, Portals, Fragment; цены floor, редкости, стратегии.
+Отвечай на русском, кратко (≤ 600 знаков), по делу. Если не знаешь — скажи об этом."""
+
+
+def _resolve_system_prompt(settings: dict, base_format: str = "") -> str:
+    """Возвращает system-prompt для analyze_gift в зависимости от выбранной persona."""
+    persona = (settings.get("ai_persona") or "balanced").lower().strip()
+    if persona == "custom":
+        custom = (settings.get("ai_custom_prompt") or "").strip()
+        if custom:
+            return custom + base_format
+        # Fallback на balanced если кастомный пуст
+        persona = "balanced"
+    return AI_PERSONAS.get(persona, AI_PERSONAS["balanced"])["system"] + base_format
 
 
 def _format_gift_for_ai(gift: dict, market: str) -> str:
@@ -254,12 +324,17 @@ def _format_digest_for_ai(stats: dict) -> str:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
-async def analyze_gift(provider: Any, gift: dict, market: str) -> str:
-    """Возвращает 1-3 предложения с вердиктом по конкретному лоту, или ''."""
+async def analyze_gift(provider: Any, gift: dict, market: str,
+                       settings: dict | None = None) -> str:
+    """Возвращает 1-3 предложения с вердиктом по конкретному лоту, или ''.
+    settings: текущий снапшот настроек, чтобы выбрать persona/custom prompt.
+    """
     if provider is None:
         return ""
+    s = settings or {}
+    system = _resolve_system_prompt(s, GIFT_VERDICT_FORMAT)
     user_prompt = _format_gift_for_ai(gift, market)
-    return await provider.chat(GIFT_VERDICT_SYSTEM, user_prompt, max_tokens=180)
+    return await provider.chat(system, user_prompt, max_tokens=180)
 
 
 async def analyze_daily(provider: Any, digest_stats: dict) -> str:
@@ -268,6 +343,16 @@ async def analyze_daily(provider: Any, digest_stats: dict) -> str:
         return ""
     user_prompt = _format_digest_for_ai(digest_stats)
     return await provider.chat(DIGEST_SUMMARY_SYSTEM, user_prompt, max_tokens=350)
+
+
+async def free_chat(provider: Any, question: str) -> str:
+    """Свободный диалог. Используется командой /ai_ask."""
+    if provider is None:
+        return ""
+    q = (question or "").strip()
+    if not q:
+        return ""
+    return await provider.chat(FREE_CHAT_SYSTEM, q[:1000], max_tokens=400)
 
 
 async def test_provider(provider: Any) -> tuple[bool, str]:
