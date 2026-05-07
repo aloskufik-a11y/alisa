@@ -30,7 +30,7 @@ from floor_cache import (
     refresh_portals_loop,
 )
 from notifier import bot
-from config import MRKT_POLL_INTERVAL
+from config import MRKT_POLL_INTERVAL, FAST_POLL_INTERVAL, FAST_POLL_PAGES
 
 logger = logging.getLogger(__name__)
 
@@ -199,7 +199,7 @@ def _mrkt_token_factory():
     return _mrkt_state.get("token")
 
 
-async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
+async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL, pages_limit: int | None = None):
     """
     Мониторинг MRKT (mrkt.fun) с пагинацией и авто-обновлением токена.
     Цены — в TON.
@@ -232,7 +232,8 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL):
                 all_listings: list = []
                 cursor = ""
 
-                for page in range(MRKT_MAX_PAGES):
+                effective_pages = pages_limit if pages_limit is not None else MRKT_MAX_PAGES
+                for page in range(effective_pages):
                     payload = _make_payload(cursor)
                     headers = _make_headers(token, init_data)
 
@@ -448,7 +449,7 @@ def _portals_init_factory():
     return _portals_state.get("init_data")
 
 
-async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
+async def poll_portals(interval: int = MRKT_POLL_INTERVAL, pages_limit: int | None = None):
     """
     Мониторинг Portals Market (portal-market.com). Цены в TON.
     API сам отдаёт floor_price для каждого item — апплаим его как есть.
@@ -477,7 +478,8 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
                 all_listings: list = []
                 for sort_by in ("price asc", "listed_at desc"):
                     page_listings = []
-                    for page in range(PORTALS_MAX_PAGES):
+                    effective_pages = pages_limit if pages_limit is not None else PORTALS_MAX_PAGES
+                    for page in range(effective_pages):
                         offset = page * PORTALS_PAGE_SIZE
                         params = {
                             "limit": PORTALS_PAGE_SIZE,
@@ -594,41 +596,68 @@ async def poll_portals(interval: int = MRKT_POLL_INTERVAL):
 # ─── Запуск ───────────────────────────────────────────────────────────────────
 
 async def start_mini_app_scrapers():
-    """Запускает все Mini App парсеры как фоновые задачи."""
-    logger.info("Запуск MRKT парсера...")
-    asyncio.create_task(_mrkt_with_retry(), name="mrkt_scraper")
-    logger.info("Запуск Portals парсера...")
-    asyncio.create_task(_portals_with_retry(), name="portals_scraper")
+    """Запускает все Mini App парсеры как фоновые задачи.
+
+    Двух-уровневая стратегия:
+      • FAST loop — каждые FAST_POLL_INTERVAL секунд (default 10s) опрашивает только
+        первую страницу. Цель: latency «лот появился → алерт» ≤ 10 сек.
+      • FULL loop — каждые MRKT_POLL_INTERVAL (60s) обходит все MRKT_MAX_PAGES.
+        Подбирает то, что fast не успел поймать (если за 10s появилось >50 новых).
+
+    Дедуп через `is_gift_seen`/`add_gift` гарантирует что алерт уйдёт ровно один раз.
+    """
+    logger.info("Запуск MRKT парсеров (fast %ds + full %ds)...",
+                FAST_POLL_INTERVAL, MRKT_POLL_INTERVAL)
+    asyncio.create_task(
+        _mrkt_with_retry(interval=FAST_POLL_INTERVAL, pages_limit=FAST_POLL_PAGES),
+        name="mrkt_fast",
+    )
+    asyncio.create_task(
+        _mrkt_with_retry(interval=MRKT_POLL_INTERVAL, pages_limit=None),
+        name="mrkt_full",
+    )
+    logger.info("Запуск Portals парсеров (fast %ds + full %ds)...",
+                FAST_POLL_INTERVAL, MRKT_POLL_INTERVAL)
+    asyncio.create_task(
+        _portals_with_retry(interval=FAST_POLL_INTERVAL, pages_limit=FAST_POLL_PAGES),
+        name="portals_fast",
+    )
+    asyncio.create_task(
+        _portals_with_retry(interval=MRKT_POLL_INTERVAL, pages_limit=None),
+        name="portals_full",
+    )
 
 
-async def _mrkt_with_retry():
+async def _mrkt_with_retry(interval: int = MRKT_POLL_INTERVAL, pages_limit: int | None = None):
     """MRKT с авто-перезапуском при истечении токена или превышении ошибок."""
     attempt = 0
+    lane = "fast" if pages_limit and pages_limit <= 1 else "full"
     while True:
         attempt += 1
-        logger.info(f"MRKT: старт сессии #{attempt}")
+        logger.info(f"MRKT[{lane}]: старт сессии #{attempt}")
         try:
-            await poll_mrkt(interval=MRKT_POLL_INTERVAL)
+            await poll_mrkt(interval=interval, pages_limit=pages_limit)
         except Exception as e:
-            logger.error(f"MRKT парсер упал: {e}", exc_info=True)
+            logger.error(f"MRKT[{lane}] парсер упал: {e}", exc_info=True)
 
         # Нарастающая пауза (60, 120, 180, 240, 300, 300, 300...)
         wait = min(60 * attempt, 300)
-        logger.info(f"MRKT: перезапуск через {wait}с...")
+        logger.info(f"MRKT[{lane}]: перезапуск через {wait}с...")
         await asyncio.sleep(wait)
 
 
-async def _portals_with_retry():
+async def _portals_with_retry(interval: int = MRKT_POLL_INTERVAL, pages_limit: int | None = None):
     """Portals с авто-перезапуском."""
     attempt = 0
+    lane = "fast" if pages_limit and pages_limit <= 1 else "full"
     while True:
         attempt += 1
-        logger.info(f"Portals: старт сессии #{attempt}")
+        logger.info(f"Portals[{lane}]: старт сессии #{attempt}")
         try:
-            await poll_portals(interval=MRKT_POLL_INTERVAL)
+            await poll_portals(interval=interval, pages_limit=pages_limit)
         except Exception as e:
-            logger.error(f"Portals парсер упал: {e}", exc_info=True)
+            logger.error(f"Portals[{lane}] парсер упал: {e}", exc_info=True)
 
         wait = min(60 * attempt, 300)
-        logger.info(f"Portals: перезапуск через {wait}с...")
+        logger.info(f"Portals[{lane}]: перезапуск через {wait}с...")
         await asyncio.sleep(wait)
