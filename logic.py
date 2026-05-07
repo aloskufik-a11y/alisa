@@ -964,6 +964,26 @@ DEFAULT_S: dict = {
 
     # Mini App URL (для кнопки в /settings)
     "mini_app_url": "",
+
+    # Daily digest
+    "daily_digest_enabled":      True,
+    "daily_digest_hour_utc":     6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date":          "",
+
+    # Ультра-редкие лоты — Fast-lane bypass
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
+
+    # AI helper
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    "ai_for_alerts":            False,
+    "ai_for_digest":            True,
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 
@@ -1088,6 +1108,20 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     max_price_ton = float(s.get("max_price_ton", DEFAULT_S["max_price_ton"]))
     if max_price_ton > 0 and price > max_price_ton:
         return False
+
+    # 2b. Ультра-редкие лоты — Fast lane.
+    # Если включено rare_priority_enabled И у лота есть атрибут ≤ rare_priority_pm,
+    # пропускаем все остальные фильтры. Это даёт пользователю «быть первым» на самые
+    # редкие лоты независимо от других настроек (max_discount, watchlist, mono, и т.д.).
+    # Цена при этом остаётся в диапазоне [min_price, max_price] из выше — это
+    # фундаментальный потолок, чтобы 1000 TON ультра-редкость не пришла случайно.
+    rare_priority_enabled = bool(s.get("rare_priority_enabled", True))
+    rare_priority_pm = float(s.get("rare_priority_pm", 5.0) or 0)
+    if rare_priority_enabled and rare_priority_pm > 0:
+        rar = gift_data.get("rarities_pm") or {}
+        for v in rar.values():
+            if isinstance(v, (int, float)) and 0 < v <= rare_priority_pm:
+                return True  # ⚡ Fast-lane bypass
 
     # 3. Floor-aware: лот должен быть на полу или у пола
     floor = gift_data.get("floor_price")

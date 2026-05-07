@@ -61,6 +61,33 @@ DEFAULT_SETTINGS: dict = {
     # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
     # Пустая строка = кнопка скрыта.
     "mini_app_url": "",
+
+    # Daily digest — раз в сутки шлёт топ-сделок и стату.
+    "daily_digest_enabled":     True,
+    "daily_digest_hour_utc":    6,      # 6 UTC ≈ 09:00 МСК / 12:00 Дубай. 0-23.
+    "daily_digest_window_hours": 24,
+    # Внутренний state — дата последней отправки (YYYY-MM-DD), не редактируется через UI.
+    "last_digest_date":         "",
+
+    # Ультра-редкие лоты — Fast lane: при наличии хотя бы одного атрибута ≤ rare_priority_pm
+    # алерт идёт мимо обычных фильтров (max_price, min_discount, watchlist, …).
+    # Альтернативная семантика recent_rare_mode который требует price > floor условие.
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
+
+    # AI-помощник: автоматический комментарий под алертом и брифинг в digest.
+    # Поддерживаемые провайдеры: "off", "groq", "gemini".
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    # Триггеры — куда AI-вердикт включается.
+    "ai_for_alerts":            False,   # если True — каждый алерт в TG получит AI-приписку
+    "ai_for_digest":            True,    # если True — Daily Digest получит AI-брифинг сверху
+    # Sanity-потолок: AI добавляется только в алерты с дисконтом ≥ ai_alerts_min_discount_pct,
+    # чтобы не перегружать билинг при больших циклах.
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

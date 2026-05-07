@@ -449,6 +449,20 @@ _DEFAULT_SETTINGS = {
     "floor_drop_alert": False,
     "floor_drop_pct": 5.0,
     "mini_app_url": "",
+    "daily_digest_enabled": True,
+    "daily_digest_hour_utc": 6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date": "",
+    "rare_priority_enabled": True,
+    "rare_priority_pm": 5.0,
+    "ai_provider": "off",
+    "groq_api_key": "",
+    "groq_model": "llama-3.3-70b-versatile",
+    "gemini_api_key": "",
+    "gemini_model": "gemini-2.0-flash",
+    "ai_for_alerts": False,
+    "ai_for_digest": True,
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 
