@@ -74,6 +74,20 @@ DEFAULT_SETTINGS: dict = {
     # Альтернативная семантика recent_rare_mode который требует price > floor условие.
     "rare_priority_enabled": True,
     "rare_priority_pm":      5.0,
+
+    # AI-помощник: автоматический комментарий под алертом и брифинг в digest.
+    # Поддерживаемые провайдеры: "off", "groq", "gemini".
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    # Триггеры — куда AI-вердикт включается.
+    "ai_for_alerts":            False,   # если True — каждый алерт в TG получит AI-приписку
+    "ai_for_digest":            True,    # если True — Daily Digest получит AI-брифинг сверху
+    # Sanity-потолок: AI добавляется только в алерты с дисконтом ≥ ai_alerts_min_discount_pct,
+    # чтобы не перегружать билинг при больших циклах.
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

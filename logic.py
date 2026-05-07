@@ -974,6 +974,16 @@ DEFAULT_S: dict = {
     # Ультра-редкие лоты — Fast-lane bypass
     "rare_priority_enabled": True,
     "rare_priority_pm":      5.0,
+
+    # AI helper
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    "ai_for_alerts":            False,
+    "ai_for_digest":            True,
+    "ai_alerts_min_discount_pct": 10.0,
 }
 
 
