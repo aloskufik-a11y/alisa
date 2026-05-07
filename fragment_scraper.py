@@ -132,23 +132,36 @@ async def _fetch_page(
     return []
 
 
-async def _fetch_all_orders(session: aiohttp.ClientSession) -> list:
-    """Загружает страницы для всех вариантов сортировки и объединяет."""
+async def _fetch_all_orders(session: aiohttp.ClientSession, sort_orders: list[str] | None = None) -> list:
+    """Загружает страницы для всех (или подмножества) вариантов сортировки и объединяет.
+
+    sort_orders=None  → все (default) — для full lane.
+    sort_orders=["listed"] → только свежие — для fast lane (новые лоты).
+    """
+    orders = sort_orders if sort_orders is not None else SORT_ORDERS
     all_gifts: dict[str, dict] = {}
-    for sort in SORT_ORDERS:
+    for sort in orders:
         gifts = await _fetch_page(session, sort=sort)
         for g in gifts:
             uid = f"fragment_{g.get('id')}"
             all_gifts[uid] = g
-        # Небольшая пауза между запросами, чтобы не словить 429
-        await asyncio.sleep(random.uniform(2, 5))
+        # Маленькая пауза между запросами, чтобы не словить 429.
+        await asyncio.sleep(random.uniform(0.7, 1.5))
     return list(all_gifts.values())
 
 
-async def start_fragment_monitor():
-    """Главный цикл мониторинга Fragment.com."""
+async def start_fragment_monitor(interval: int | None = None, sort_orders: list[str] | None = None):
+    """Главный цикл мониторинга Fragment.com.
+
+    interval=None      → FRAGMENT_POLL_INTERVAL (full lane, все сортировки).
+    interval=10, sort_orders=["listed"] → fast lane: ловим только свежие листинги.
+    """
+    eff_interval = interval if interval is not None else FRAGMENT_POLL_INTERVAL
+    eff_orders = sort_orders if sort_orders is not None else SORT_ORDERS
+    lane = "fast" if eff_interval < FRAGMENT_POLL_INTERVAL else "full"
     logger.info(
-        f"Fragment HTML мониторинг запущен (interval={FRAGMENT_POLL_INTERVAL}s)"
+        f"Fragment[{lane}] мониторинг запущен "
+        f"(interval={eff_interval}s, sort={eff_orders})"
     )
 
     timeout = aiohttp.ClientTimeout(total=30, connect=10)
@@ -175,7 +188,7 @@ async def start_fragment_monitor():
                         f"(TON/USD = ${rate_provider.ton_usd:.2f})"
                     )
 
-                gifts = await _fetch_all_orders(session)
+                gifts = await _fetch_all_orders(session, sort_orders=eff_orders)
 
                 if not gifts:
                     consecutive_fails += 1
@@ -210,6 +223,7 @@ async def start_fragment_monitor():
                 new_count = 0
                 alerted_count = 0
                 skipped_by_limit = 0
+                pending_alerts: list[dict] = []
                 for gift in gifts:
                     uid = f"fragment_{gift['id']}"
 
@@ -234,19 +248,32 @@ async def start_fragment_monitor():
                         f"#{gift.get('number', '?')} "
                         f"— {format_price(gift['price'])}{stars_info}"
                     )
+                    pending_alerts.append(gift)
+                    alerted_count += 1
 
-                    try:
-                        from notifier import send_gift_alert, bot
-                        from config import USER_ID
-                        await send_gift_alert(bot, USER_ID, gift, market="fragment")
-                        alerted_count += 1
-                        try:
-                            from feed_store import push as feed_push
-                            feed_push(gift, "fragment")
-                        except Exception:
-                            pass
-                    except Exception as e:
-                        logger.exception(f"Fragment notify error: {e}")
+                # Параллельная отправка пачки. См. mini_app_scraper.process_listings —
+                # тот же паттерн: одна семафор-обёртка, сем=8 безопасно по rate-limit Telegram.
+                if pending_alerts:
+                    from notifier import send_gift_alert, bot
+                    from config import USER_ID
+                    sem = asyncio.Semaphore(8)
+
+                    async def _dispatch(g: dict) -> None:
+                        async with sem:
+                            try:
+                                await send_gift_alert(bot, USER_ID, g, market="fragment")
+                            except Exception:
+                                logger.exception(f"Fragment notify error for {g.get('id')}")
+                            try:
+                                from feed_store import push as feed_push
+                                feed_push(g, "fragment")
+                            except Exception:
+                                pass
+
+                    await asyncio.gather(
+                        *(_dispatch(g) for g in pending_alerts),
+                        return_exceptions=True,
+                    )
 
                 if new_count:
                     msg = (
@@ -260,5 +287,10 @@ async def start_fragment_monitor():
             except Exception as e:
                 logger.exception(f"Fragment цикл: {e}")
 
-            jitter = random.uniform(-5, 5)
-            await asyncio.sleep(max(15, FRAGMENT_POLL_INTERVAL + jitter))
+            # Для fast-lane jitter маленький, чтобы держать ≈10s такт.
+            if eff_interval <= 15:
+                jitter = random.uniform(-1, 1)
+                await asyncio.sleep(max(5, eff_interval + jitter))
+            else:
+                jitter = random.uniform(-5, 5)
+                await asyncio.sleep(max(15, eff_interval + jitter))

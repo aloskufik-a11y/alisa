@@ -338,21 +338,28 @@ try:
     from logic import is_profitable
     import settings_store
 
-    # Сбрасываем настройки на дефолтные для воспроизводимости
+    # Сбрасываем настройки на дефолтные для воспроизводимости.
+    # rare_priority_enabled явно выключаем — былбы fast-lane bypass ломает фильтры.
     DEFAULTS = {
         "max_price_ton": 50.0,
         "floor_tolerance_pct": 0.0,
+        "strict_below_floor": True,
+        "min_savings_ton": 0.0,
         "min_discount_pct": 0,
         "require_floor": True,
         "filter_rarity": [],
         "filter_markets": ["mrkt", "fragment", "portals"],
         "notifications_on": True,
+        "rare_priority_enabled": False,
     }
     settings_store.save_settings(DEFAULTS.copy())
 
-    # === Базовая floor-логика ===
-    test("is_profitable: 30 при floor=30 (на полу) → True",
-         is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    # === Базовая floor-логика (strict_below_floor=True) ===
+    # НОВОЕ: по умолчанию price == floor БОЛЬШЕ НЕ алертит (ноль профита).
+    test("is_profitable: 30 при floor=30 (ровно по полу) → False",
+         not is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 29.99 при floor=30 (чуть ниже пола) → True",
+         is_profitable({"price": 29.99, "floor_price": 30.0}, "mrkt"))
     test("is_profitable: 25 при floor=30 (ниже пола) → True",
          is_profitable({"price": 25.0, "floor_price": 30.0}, "mrkt"))
     test("is_profitable: 31 при floor=30, tol=0% → False",
@@ -360,13 +367,59 @@ try:
     test("is_profitable: 45 при floor=30 (главный баг!) → False",
          not is_profitable({"price": 45.0, "floor_price": 30.0}, "mrkt"))
 
-    # === Tolerance ===
-    s = DEFAULTS.copy(); s["floor_tolerance_pct"] = 5.0
+    # === Отключённый strict_below_floor (старое поведение) ===
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False
     settings_store.save_settings(s)
-    test("is_profitable: 31.5 при floor=30, tol=5% → True (30*1.05=31.5)",
+    test("is_profitable: 30 при floor=30, strict=False → True (старое поведение)",
+         is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+
+    # === Tolerance (работает только при strict_below_floor=False) ===
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False; s["floor_tolerance_pct"] = 5.0
+    settings_store.save_settings(s)
+    test("is_profitable: 31.5 при floor=30, tol=5% strict=False → True (30*1.05=31.5)",
          is_profitable({"price": 31.5, "floor_price": 30.0}, "mrkt"))
-    test("is_profitable: 33 при floor=30, tol=5% → False",
+    test("is_profitable: 33 при floor=30, tol=5% strict=False → False",
          not is_profitable({"price": 33.0, "floor_price": 30.0}, "mrkt"))
+    s = DEFAULTS.copy(); s["floor_tolerance_pct"] = 5.0  # strict_below_floor=True (дефолт)
+    settings_store.save_settings(s)
+    test("is_profitable: 31.5 при floor=30, tol=5% strict=True → False (strict побеждает tol)",
+         not is_profitable({"price": 31.5, "floor_price": 30.0}, "mrkt"))
+
+    # === min_savings_ton (абсолютный порог экономии) ===
+    s = DEFAULTS.copy(); s["min_savings_ton"] = 1.0
+    settings_store.save_settings(s)
+    test("is_profitable: 29.5 при floor=30, min_savings=1.0 → False (экономия 0.5 < 1.0)",
+         not is_profitable({"price": 29.5, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 28 при floor=30, min_savings=1.0 → True (экономия 2.0 >= 1.0)",
+         is_profitable({"price": 28.0, "floor_price": 30.0}, "mrkt"))
+
+    # === Регрессия: rare_priority НЕ должен обходить floor-проверки ===
+    # Юзер пожаловался: «когда ставлю минимум цену над флор, бот всё равно алертит».
+    # Причина: до фикса rare_priority_enabled=true (default) делал bypass всех
+    # фильтров включая strict_below_floor. Теперь is_ultra_rare обходит только
+    # вторичные фильтры (mono, watchlist, max_rarity_pm, min_discount_pct), но
+    # не цены и floor.
+    s = DEFAULTS.copy()
+    s["rare_priority_enabled"] = True
+    s["rare_priority_pm"] = 5.0
+    s["strict_below_floor"] = True
+    settings_store.save_settings(s)
+    rare_gift = {"price": 100.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) НО price=100 > floor=30 → False (rare НЕ обходит floor)",
+         not is_profitable(rare_gift, "mrkt"))
+    rare_below = {"price": 25.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) И price=25 < floor=30 → True",
+         is_profitable(rare_below, "mrkt"))
+    # rare-priority обходит min_discount_pct когда цена ниже floor.
+    s["min_discount_pct"] = 50  # требуем -50%
+    settings_store.save_settings(s)
+    rare_low_discount = {"price": 29.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰), discount=3.3% < min_disc=50 → True (rare обходит discount)",
+         is_profitable(rare_low_discount, "mrkt"))
+    # обычный лот с discount<min_discount → False
+    normal_low_discount = {"price": 29.0, "floor_price": 30.0}
+    test("is_profitable: НЕ редкий, discount=3.3% < min_disc=50 → False",
+         not is_profitable(normal_low_discount, "mrkt"))
 
     # === require_floor ===
     s = DEFAULTS.copy(); s["require_floor"] = True
@@ -387,7 +440,9 @@ try:
          is_profitable({"price": 5.0, "floor_price": 10.0}, "mrkt"))
 
     # === min_discount_pct ===
-    s = DEFAULTS.copy(); s["min_discount_pct"] = 25
+    # С дефолтным strict_below_floor=True отфильтруется price == floor раньше,
+    # чем min_discount_pct до него дойдёт — поэтому тестируем с явными strict=False.
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False; s["min_discount_pct"] = 25
     settings_store.save_settings(s)
     test("is_profitable: скидка 0% < 25% → False",
          not is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
@@ -787,6 +842,8 @@ try:
         "max_price_ton": 50,
         "min_price_ton": 0,
         "floor_tolerance_pct": 0,
+        "strict_below_floor": True,
+        "min_savings_ton": 0.0,
         "min_discount_pct": 0,
         "require_floor": False,
         "filter_rarity": [],
@@ -796,6 +853,7 @@ try:
         "number_filters": [],
         "max_rarity_pm": 0,
         "notifications_on": True,
+        "rare_priority_enabled": False,  # иначе fast-lane bypass сыплет все фильтрры
     }
 
     def with_settings(**overrides):
@@ -804,8 +862,9 @@ try:
         settings_store.save_settings(s)
         return s
 
+    # Цена строго ниже floor (5 < 6) — чтобы strict_below_floor=True не отбросил.
     gift_low_num = {
-        "name": "Test", "price": 5.0, "floor_price": 5.0, "number": 42,
+        "name": "Test", "price": 5.0, "floor_price": 6.0, "number": 42,
         "colors": [0x336699, 0x4477AA, 0x224488],
         "rarities_pm": {"model": 5.0, "backdrop": 12.0, "symbol": 0.8},
     }

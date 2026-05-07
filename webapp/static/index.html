@@ -286,6 +286,23 @@
   .stepper button:active { background: var(--accent); color: var(--accent-fg); }
   .stepper input { width: 56px; text-align: center; padding: 6px 4px; }
 
+  /* AI selects + password inputs */
+  .ai-select {
+    background: var(--card-h); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 7px 10px; font-size: 13px;
+    min-width: 140px; max-width: 60vw;
+  }
+  .ai-select:focus { outline: none; border-color: var(--accent); }
+  .ai-input {
+    width: 100%; box-sizing: border-box;
+    background: var(--card-h); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 10px; padding: 10px 12px; font-size: 14px;
+    margin-top: 8px; font-family: monospace;
+  }
+  .ai-input:focus { outline: none; border-color: var(--accent); }
+  .setting--col { flex-direction: column !important; align-items: stretch !important; gap: 6px; }
+  .setting--col .setting-label { width: 100%; }
+
   .multi-pills { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 16px 14px; }
   .multi-pills .pill { font-size: 12px; padding: 5px 10px; }
 
@@ -607,18 +624,31 @@ const ago = (ts) => {
   if (d < 86400) return Math.floor(d / 3600) + ' ч';
   return Math.floor(d / 86400) + ' д';
 };
-const isLucky = (n) => String(n) === '777';
+// Фильтры номеров — синхронизированы с серверным logic.number_categories():
+//   раньше isLucky ловило только #777 вместо {7,77,777,7777,...},
+//   isRound пропускал #10 (было s.length>=3),
+//   isRepeat пропускал #11/#22 (было >=3).
+const isLucky = (n) => {
+  const s = String(parseInt(n, 10) || 0);
+  if (s === '0') return false;
+  return /^7+$/.test(s);
+};
 const isRound = (n) => {
-  const s = String(n);
-  return /^[1-9]0+$/.test(s) && s.length >= 3;
+  // Дегенерируем от всех ROUND-чисел: 10/100/1000/10000/100000/1000000.
+  const k = parseInt(n, 10);
+  return [10, 100, 1000, 10000, 100000, 1000000].includes(k);
 };
 const isPalindrome = (n) => {
-  const s = String(n);
-  return s.length >= 3 && s === s.split('').reverse().join('');
+  const s = String(parseInt(n, 10) || 0);
+  // Сервер исключает случаи с одной цифрой (#777 идёт в repeat, не в palindrome).
+  if (s.length < 3) return false;
+  if (new Set(s).size === 1) return false;
+  return s === s.split('').reverse().join('');
 };
 const isRepeat = (n) => {
-  const s = String(n);
-  return s.length >= 3 && /^(\d)\1+$/.test(s);
+  // Сервер: все цифры одинаковые И длина ≥ 2.
+  const s = String(parseInt(n, 10) || 0);
+  return s.length >= 2 && /^(\d)\1+$/.test(s);
 };
 const isSub100 = (n) => Number(n) > 0 && Number(n) < 100;
 
@@ -1057,8 +1087,12 @@ function renderSettings() {
       <h3>💎 Цена и Floor</h3>
       ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
       ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${toggleRow('Только строго ниже Floor', 'strict_below_floor', s.strict_below_floor !== false,
+        'ВКЛ (рекомендуется): алерт только если price < floor — покупка ровно по полу = ноль профита, такие лоты игнорируем. ВЫКЛ: ловим и price = floor (старое поведение).')}
+      ${stepperRow('Мин. экономия TON', 'min_savings_ton', s.min_savings_ton ?? 0, 0, 1000, 0.1,
+        'Абсолютный минимум выгоды: floor − price ≥ этого значения. 0 = не учитывать.')}
       ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
-        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
+        'Работает только при выключенном «Только строго ниже Floor». Допуск price ≤ floor × (1 + допуск).')}
       ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
       ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
         'Игнорировать лоты, у которых нет floor.')}
@@ -1126,6 +1160,70 @@ function renderSettings() {
     </div>
 
     <div class="setting-section">
+      <h3>⚡ Ультра-редкие (Fast lane)</h3>
+      ${toggleRow('Приоритет ультра-редким', 'rare_priority_enabled', s.rare_priority_enabled !== false,
+        'Лоты с любым атрибутом ≤ N‰ (model/backdrop/symbol) проходят все остальные фильтры — гарантия, что вы первый узнаете о редких.')}
+      ${stepperRow('Порог редкости (‰)', 'rare_priority_pm', s.rare_priority_pm ?? 5, 0.1, 50, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>📊 Daily Digest</h3>
+      ${toggleRow('Ежедневная сводка', 'daily_digest_enabled', s.daily_digest_enabled !== false,
+        'Раз в день бот пришлёт топ-сделок, статистику по маркетам и самые активные коллекции.')}
+      ${stepperRow('Час отправки (UTC)', 'daily_digest_hour_utc', s.daily_digest_hour_utc ?? 6, 0, 23, 1)}
+      ${stepperRow('Окно сводки (часы)', 'daily_digest_window_hours', s.daily_digest_window_hours ?? 24, 1, 168, 1)}
+    </div>
+
+    <div class="setting-section">
+      <h3>🤖 AI-помощник</h3>
+      <div class="setting">
+        <div class="setting-label">
+          <span class="setting-name">Провайдер</span>
+          <span class="setting-hint">Выберите провайдера и вставьте API-ключ ниже. Команда /ai_test в боте проверит что всё работает.</span>
+        </div>
+        <select class="ai-select" id="sel_ai_provider"
+                onchange="patchSetting('ai_provider', this.value); state.settings.ai_provider = this.value; renderSettings(); tg?.HapticFeedback?.selectionChanged();">
+          <option value="off"    ${(s.ai_provider || 'off') === 'off' ? 'selected' : ''}>— Выключен —</option>
+          <option value="groq"   ${s.ai_provider === 'groq' ? 'selected' : ''}>⚡ Groq (быстрее, бесплатно)</option>
+          <option value="gemini" ${s.ai_provider === 'gemini' ? 'selected' : ''}>✨ Google Gemini</option>
+        </select>
+      </div>
+
+      ${(s.ai_provider === 'groq') ? `
+        ${selectRow('Модель Groq', 'groq_model', s.groq_model || 'llama-3.3-70b-versatile', [
+          'llama-3.3-70b-versatile',
+          'llama-3.1-8b-instant',
+          'mixtral-8x7b-32768',
+          'gemma2-9b-it',
+        ], 'llama-3.3-70b-versatile — лучший баланс. llama-3.1-8b-instant — самый быстрый.')}
+        ${passwordRow('API-ключ Groq', 'groq_api_key', s.groq_api_key || '',
+          'gsk_…',
+          'Получить: <a href="https://console.groq.com/keys" target="_blank" style="color: var(--accent)">console.groq.com/keys</a>')}
+      ` : ''}
+
+      ${(s.ai_provider === 'gemini') ? `
+        ${selectRow('Модель Gemini', 'gemini_model', s.gemini_model || 'gemini-2.0-flash', [
+          'gemini-2.0-flash',
+          'gemini-2.0-flash-lite',
+          'gemini-1.5-flash',
+          'gemini-1.5-pro',
+        ], 'gemini-2.0-flash — быстрая и бесплатная. gemini-1.5-pro — лучшее качество (платная).')}
+        ${passwordRow('API-ключ Gemini', 'gemini_api_key', s.gemini_api_key || '',
+          'AI…',
+          'Получить: <a href="https://aistudio.google.com/u/1/api-keys" target="_blank" style="color: var(--accent)">aistudio.google.com</a>')}
+      ` : ''}
+
+      ${(s.ai_provider && s.ai_provider !== 'off') ? `
+        ${toggleRow('AI-комментарий под алертами', 'ai_for_alerts', !!s.ai_for_alerts,
+          'К каждому алерту бот добавит короткий вердикт от AI: BUY / HOLD / SKIP с причиной.')}
+        ${stepperRow('Мин. дисконт для AI (%)', 'ai_alerts_min_discount_pct', s.ai_alerts_min_discount_pct ?? 10, 0, 99, 1,
+          'AI-вердикт срабатывает только для алертов с ≥ N% дисконт от floor — экономит токены.')}
+        ${toggleRow('AI-брифинг в Daily Digest', 'ai_for_digest', s.ai_for_digest !== false,
+          'AI прокомментирует общее настроение рынка в начале дайджеста.')}
+      ` : ''}
+    </div>
+
+    <div class="setting-section">
       <h3>🛠 Инструменты</h3>
       <div class="setting">
         <div class="setting-label">
@@ -1189,6 +1287,16 @@ function renderSettings() {
       list.innerHTML = renderWatchlistOptions(field, key, cur, e.target.value);
       attachWatchlistOptionHandlers(list, key, field);
     });
+  });
+  // Wire initial watchlist option / remove handlers (one-time on render)
+  pane.querySelectorAll('[data-wl-list]').forEach(list => {
+    const key = list.dataset.wlList;
+    const inp = pane.querySelector('[data-wl-search="' + key + '"]');
+    const field = inp ? inp.dataset.wlField : '';
+    attachWatchlistOptionHandlers(list, key, field);
+  });
+  pane.querySelectorAll('[data-wl-selected]').forEach(strip => {
+    attachWatchlistRemoveHandlers(strip, strip.dataset.wlSelected);
   });
 }
 
@@ -1280,6 +1388,11 @@ function resetSettings() {
     watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
     floor_drop_alert: false, floor_drop_pct: 5,
     filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+    rare_priority_enabled: true, rare_priority_pm: 5,
+    daily_digest_enabled: true, daily_digest_hour_utc: 6, daily_digest_window_hours: 24,
+    ai_provider: 'off', groq_api_key: '', groq_model: 'llama-3.3-70b-versatile',
+    gemini_api_key: '', gemini_model: 'gemini-2.0-flash',
+    ai_for_alerts: false, ai_for_digest: true, ai_alerts_min_discount_pct: 10,
   };
   state.pendingSettings = { ...state.pendingSettings, ...def };
   renderSettings();
@@ -1351,6 +1464,44 @@ function stepSetting(key, id, dir, min, max, step) {
 function stepInput(key, raw, min, max) {
   const v = Math.max(min, Math.min(max, parseFloat(raw) || 0));
   patchSetting(key, v);
+}
+
+function selectRow(label, key, value, options, hint = '') {
+  const id = 'sel_' + key;
+  const opts = options.map(o => {
+    const v = typeof o === 'object' ? o.value : o;
+    const lab = typeof o === 'object' ? o.label : o;
+    return `<option value="${v}" ${v === value ? 'selected' : ''}>${lab}</option>`;
+  }).join('');
+  return `
+    <div class="setting">
+      <div class="setting-label">
+        <span class="setting-name">${label}</span>
+        ${hint ? `<span class="setting-hint">${hint}</span>` : ''}
+      </div>
+      <select class="ai-select" id="${id}" onchange="patchSetting('${key}', this.value); tg?.HapticFeedback?.selectionChanged();">
+        ${opts}
+      </select>
+    </div>`;
+}
+
+function passwordRow(label, key, value, placeholder, hint = '') {
+  const id = 'pw_' + key;
+  // Показываем последние 4 символа в подсказке если ключ непустой,
+  // в input всегда type=password.
+  const tail = value && value.length > 4 ? '••••' + value.slice(-4) : '';
+  const extraHint = tail ? `<span class="setting-hint">Сохранено: <code>${tail}</code></span>` : '';
+  return `
+    <div class="setting setting--col">
+      <div class="setting-label">
+        <span class="setting-name">${label}</span>
+        ${hint ? `<span class="setting-hint">${hint}</span>` : ''}
+        ${extraHint}
+      </div>
+      <input id="${id}" class="ai-input" type="password" autocomplete="off"
+             placeholder="${placeholder}"
+             oninput="patchSetting('${key}', this.value)" />
+    </div>`;
 }
 
 async function saveSettings() {
