@@ -264,6 +264,8 @@ _DEFAULT_SETTINGS = {
     "max_price_ton": 50.0,
     "min_price_ton": 0.0,
     "floor_tolerance_pct": 0.0,
+    "strict_below_floor": True,
+    "min_savings_ton": 0.0,
     "min_discount_pct": 0,
     "require_floor": True,
     "filter_rarity": [],
@@ -287,6 +289,12 @@ _DEFAULT_SETTINGS = {
     "floor_drop_alert": False,
     "floor_drop_pct": 5.0,
     "mini_app_url": "",
+    "daily_digest_enabled": True,
+    "daily_digest_hour_utc": 6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date": "",
+    "rare_priority_enabled": True,
+    "rare_priority_pm": 5.0,
 }
 
 

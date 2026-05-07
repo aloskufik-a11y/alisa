@@ -15,7 +15,11 @@ _lock = threading.Lock()
 DEFAULT_SETTINGS: dict = {
     "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов (абсолютный потолок)
     "min_price_ton": 0.0,               # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,         # Допустимое превышение Floor (%). 0 = только floor
+    "floor_tolerance_pct": 0.0,         # Когда strict_below_floor=False: допустимое превышение Floor (%).
+    "strict_below_floor": True,         # Если True — price ДОЛЖЕН быть строго < floor.
+                                        # Покупка точно по полу = ноль профита, такие лоты не алертим по умолчанию.
+                                        # False = старое поведение (price <= floor допустим).
+    "min_savings_ton": 0.0,             # Доп. фильтр: абсолютный минимум экономии в TON (floor − price ≥ этого).
     "min_discount_pct": 0,              # Мин. скидка от Floor (%) (доп. фильтр)
     "require_floor": True,              # Алертить только лоты с известным floor
     "filter_rarity": [],                # [] = все редкости
@@ -57,6 +61,19 @@ DEFAULT_SETTINGS: dict = {
     # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
     # Пустая строка = кнопка скрыта.
     "mini_app_url": "",
+
+    # Daily digest — раз в сутки шлёт топ-сделок и стату.
+    "daily_digest_enabled":     True,
+    "daily_digest_hour_utc":    6,      # 6 UTC ≈ 09:00 МСК / 12:00 Дубай. 0-23.
+    "daily_digest_window_hours": 24,
+    # Внутренний state — дата последней отправки (YYYY-MM-DD), не редактируется через UI.
+    "last_digest_date":         "",
+
+    # Ультра-редкие лоты — Fast lane: при наличии хотя бы одного атрибута ≤ rare_priority_pm
+    # алерт идёт мимо обычных фильтров (max_price, min_discount, watchlist, …).
+    # Альтернативная семантика recent_rare_mode который требует price > floor условие.
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

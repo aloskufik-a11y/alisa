@@ -33,13 +33,41 @@ SESSION_PATH = os.getenv("SESSION_PATH") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "userbot_session"
 )
 
-# Флаг для graceful shutdown
+# Флаг для graceful shutdown.
+# Устанавливается обработчиками SIGTERM/SIGINT (см. _install_signal_handlers ниже).
+# Все периодические задачи опрашивают .is_set() и завершаются чисто.
 _shutdown_event: asyncio.Event | None = None
+
+
+def _install_signal_handlers(loop: asyncio.AbstractEventLoop, event: asyncio.Event) -> None:
+    """Повесить SIGTERM/SIGINT на event.set() через loop.add_signal_handler().
+
+    Отличается от signal.signal() тем, что работает внутри asyncio (не пытается
+    будить thread из sleep). На Windows add_signal_handler недоступен —
+    фаллбэк на signal.signal() с set_threadsafe.
+    """
+    def _trigger(signum: int) -> None:
+        if not event.is_set():
+            logger.warning(f"Получен сигнал {signum} — graceful shutdown...")
+            event.set()
+
+    if sys.platform == "win32":
+        # add_signal_handler() не реализован в ProactorEventLoop.
+        signal.signal(signal.SIGINT, lambda s, f: loop.call_soon_threadsafe(_trigger, s))
+        signal.signal(signal.SIGTERM, lambda s, f: loop.call_soon_threadsafe(_trigger, s))
+    else:
+        for sig in (signal.SIGTERM, signal.SIGINT):
+            try:
+                loop.add_signal_handler(sig, _trigger, int(sig))
+            except (NotImplementedError, RuntimeError):
+                # Некоторые runtime или sub-thread loop без add_signal_handler.
+                signal.signal(sig, lambda s, f: loop.call_soon_threadsafe(_trigger, s))
 
 
 async def main():
     global _shutdown_event
     _shutdown_event = asyncio.Event()
+    _install_signal_handlers(asyncio.get_running_loop(), _shutdown_event)
 
     # 1. Валидация конфига (выходит с кодом 1 если критические поля пустые)
     from config import validate_config, API_ID, API_HASH
@@ -178,16 +206,41 @@ async def main():
         import aiohttp
         url = f"{external}/healthz"
         logger.info(f"Self keep-alive ping enabled → {url}")
-        while not _shutdown_event.is_set():
-            try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as r:
+        # Одна ClientSession на всё время работы бота — экономим TCP-хендшейки
+        # и DNS-лукапы. Раньше создавалась новая каждые 10 мин — 144 раз/сутки лишних connect().
+        timeout = aiohttp.ClientTimeout(total=15, connect=5)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            while not _shutdown_event.is_set():
+                try:
+                    async with session.get(url) as r:
                         logger.debug(f"Self-ping {r.status}")
-            except Exception as e:
-                logger.debug(f"Self-ping failed: {e}")
-            await asyncio.sleep(600)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.debug(f"Self-ping failed: {e}")
+                # asyncio.wait_for(_shutdown_event.wait(), 600) вместо sleep(600) —
+                # это прерывает сон мгновенно при редеплое, вместо ожидания до 10 мин.
+                try:
+                    await asyncio.wait_for(_shutdown_event.wait(), timeout=600)
+                except asyncio.TimeoutError:
+                    pass
 
     asyncio.create_task(periodic_self_ping(), name="self_ping")
+
+    # 8f. Daily digest scheduler — раз в сутки шлёт summary за прошедшие 24ч.
+    # Час отправки конфигурируется в Mini App settings (daily_digest_hour_utc, default 6).
+    try:
+        from daily_digest import start_digest_scheduler
+        from notifier import bot as _bot
+        from config import USER_ID as _user_id
+        if _user_id:
+            asyncio.create_task(
+                start_digest_scheduler(_bot, _user_id),
+                name="daily_digest",
+            )
+            logger.info("Daily digest scheduler запланирован")
+    except Exception:
+        logger.exception("Не удалось запустить daily digest scheduler")
 
     # 8a. Web App HTTP сервер.
     # Поднимаем если задан WEBAPP_PORT (локально) или PORT (Render/Railway/etc).
@@ -209,13 +262,50 @@ async def main():
         except Exception as e:
             logger.exception(f"Не удалось запустить Web App сервер: {e}")
 
-    # 9. Запускаем всё вместе
+    # 9. Запускаем всё вместе.
+    # Добавляем watchdog: как только _shutdown_event сработал (SIGTERM от Render),
+    # явно отменяем все background tasks вместо жёсткого SIGKILL.
+    from config import FAST_POLL_INTERVAL
+    main_tasks = [
+        # Full lane: все сортировки, обычный интервал. Подбирает то, что fast пропустил.
+        asyncio.create_task(start_fragment_monitor(), name="fragment_full"),
+        # Fast lane: только свежие листинги, быстрый такт ≈10s. Цель: ловим первыми.
+        asyncio.create_task(
+            start_fragment_monitor(interval=FAST_POLL_INTERVAL, sort_orders=["listed"]),
+            name="fragment_fast",
+        ),
+        asyncio.create_task(start_notifier(), name="notifier"),
+        asyncio.create_task(client.run_until_disconnected(), name="telethon"),
+    ]
+    shutdown_task = asyncio.create_task(_shutdown_event.wait(), name="shutdown_watchdog")
+
     try:
-        await asyncio.gather(
-            start_fragment_monitor(),
-            start_notifier(),
-            client.run_until_disconnected(),
+        # Ждём либо завершения любой main task (= краш), либо сигнала.
+        done, pending = await asyncio.wait(
+            [*main_tasks, shutdown_task],
+            return_when=asyncio.FIRST_COMPLETED,
         )
+        if shutdown_task in done:
+            logger.info("Shutdown signal received — отменяем все задачи...")
+        else:
+            # Один из компонентов упал/закончился сам (обычно telethon disconnect).
+            for t in done:
+                if t in main_tasks and t.exception():
+                    logger.exception(
+                        f"Task {t.get_name()} упал",
+                        exc_info=t.exception(),
+                    )
+        for t in main_tasks + [shutdown_task]:
+            if not t.done():
+                t.cancel()
+        # Ждём финализацию но не больше 15s, иначе Render убьёт SIGKILL’ом через 30s.
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*main_tasks, shutdown_task, return_exceptions=True),
+                timeout=15,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("Не все task’и успели отмениться за 15s, идём дальше.")
     except asyncio.CancelledError:
         logger.info("Задачи отменены, завершаем...")
     finally:
@@ -225,7 +315,10 @@ async def main():
                 await webapp_runner.cleanup()
             except Exception:
                 pass
-        await client.disconnect()
+        try:
+            await asyncio.wait_for(client.disconnect(), timeout=5)
+        except (asyncio.TimeoutError, Exception):
+            pass
         logger.info("Бот остановлен. До свидания! 👋")
 
 

@@ -607,18 +607,31 @@ const ago = (ts) => {
   if (d < 86400) return Math.floor(d / 3600) + ' ч';
   return Math.floor(d / 86400) + ' д';
 };
-const isLucky = (n) => String(n) === '777';
+// Фильтры номеров — синхронизированы с серверным logic.number_categories():
+//   раньше isLucky ловило только #777 вместо {7,77,777,7777,...},
+//   isRound пропускал #10 (было s.length>=3),
+//   isRepeat пропускал #11/#22 (было >=3).
+const isLucky = (n) => {
+  const s = String(parseInt(n, 10) || 0);
+  if (s === '0') return false;
+  return /^7+$/.test(s);
+};
 const isRound = (n) => {
-  const s = String(n);
-  return /^[1-9]0+$/.test(s) && s.length >= 3;
+  // Дегенерируем от всех ROUND-чисел: 10/100/1000/10000/100000/1000000.
+  const k = parseInt(n, 10);
+  return [10, 100, 1000, 10000, 100000, 1000000].includes(k);
 };
 const isPalindrome = (n) => {
-  const s = String(n);
-  return s.length >= 3 && s === s.split('').reverse().join('');
+  const s = String(parseInt(n, 10) || 0);
+  // Сервер исключает случаи с одной цифрой (#777 идёт в repeat, не в palindrome).
+  if (s.length < 3) return false;
+  if (new Set(s).size === 1) return false;
+  return s === s.split('').reverse().join('');
 };
 const isRepeat = (n) => {
-  const s = String(n);
-  return s.length >= 3 && /^(\d)\1+$/.test(s);
+  // Сервер: все цифры одинаковые И длина ≥ 2.
+  const s = String(parseInt(n, 10) || 0);
+  return s.length >= 2 && /^(\d)\1+$/.test(s);
 };
 const isSub100 = (n) => Number(n) > 0 && Number(n) < 100;
 
@@ -1057,8 +1070,12 @@ function renderSettings() {
       <h3>💎 Цена и Floor</h3>
       ${stepperRow('Мин. цена TON', 'min_price_ton', s.min_price_ton, 0, 1000, 0.1)}
       ${stepperRow('Макс. цена TON', 'max_price_ton', s.max_price_ton, 0, 100000, 1)}
+      ${toggleRow('Только строго ниже Floor', 'strict_below_floor', s.strict_below_floor !== false,
+        'ВКЛ (рекомендуется): алерт только если price < floor — покупка ровно по полу = ноль профита, такие лоты игнорируем. ВЫКЛ: ловим и price = floor (старое поведение).')}
+      ${stepperRow('Мин. экономия TON', 'min_savings_ton', s.min_savings_ton ?? 0, 0, 1000, 0.1,
+        'Абсолютный минимум выгоды: floor − price ≥ этого значения. 0 = не учитывать.')}
       ${stepperRow('Допуск над Floor, %', 'floor_tolerance_pct', s.floor_tolerance_pct, 0, 50, 0.5,
-        'Лот считается выгодным, если price ≤ floor × (1 + допуск).')}
+        'Работает только при выключенном «Только строго ниже Floor». Допуск price ≤ floor × (1 + допуск).')}
       ${stepperRow('Мин. скидка от Floor, %', 'min_discount_pct', s.min_discount_pct, 0, 99, 1)}
       ${toggleRow('Только с известным Floor', 'require_floor', s.require_floor,
         'Игнорировать лоты, у которых нет floor.')}
@@ -1123,6 +1140,21 @@ function renderSettings() {
       ${toggleRow('Алерт при падении floor', 'floor_drop_alert', s.floor_drop_alert,
         'Бот сравнивает floor каждые 60 сек и отправляет уведомление, если он упал на N% — отличный сигнал для покупки.')}
       ${stepperRow('Порог падения, %', 'floor_drop_pct', s.floor_drop_pct, 0.5, 50, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>⚡ Ультра-редкие (Fast lane)</h3>
+      ${toggleRow('Приоритет ультра-редким', 'rare_priority_enabled', s.rare_priority_enabled !== false,
+        'Лоты с любым атрибутом ≤ N‰ (model/backdrop/symbol) проходят все остальные фильтры — гарантия, что вы первый узнаете о редких.')}
+      ${stepperRow('Порог редкости (‰)', 'rare_priority_pm', s.rare_priority_pm ?? 5, 0.1, 50, 0.5)}
+    </div>
+
+    <div class="setting-section">
+      <h3>📊 Daily Digest</h3>
+      ${toggleRow('Ежедневная сводка', 'daily_digest_enabled', s.daily_digest_enabled !== false,
+        'Раз в день бот пришлёт топ-сделок, статистику по маркетам и самые активные коллекции.')}
+      ${stepperRow('Час отправки (UTC)', 'daily_digest_hour_utc', s.daily_digest_hour_utc ?? 6, 0, 23, 1)}
+      ${stepperRow('Окно сводки (часы)', 'daily_digest_window_hours', s.daily_digest_window_hours ?? 24, 1, 168, 1)}
     </div>
 
     <div class="setting-section">
@@ -1290,6 +1322,8 @@ function resetSettings() {
     watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],
     floor_drop_alert: false, floor_drop_pct: 5,
     filter_markets: ['mrkt', 'fragment', 'portals'], filter_rarity: [], filter_collections: [], number_filters: [],
+    rare_priority_enabled: true, rare_priority_pm: 5,
+    daily_digest_enabled: true, daily_digest_hour_utc: 6, daily_digest_window_hours: 24,
   };
   state.pendingSettings = { ...state.pendingSettings, ...def };
   renderSettings();
