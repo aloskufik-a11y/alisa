@@ -1136,6 +1136,7 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
         f"🏪 {market_icon}"
     )
 
+    sent_ok = False
     try:
         if image_url:
             try:
@@ -1145,18 +1146,28 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
                     caption=caption,
                     reply_markup=keyboard,
                 )
-                return
+                sent_ok = True
             except Exception:
                 pass  # Fallback на текст
 
-        await bot_instance.send_message(
-            chat_id=chat_id,
-            text=caption,
-            reply_markup=keyboard,
-            link_preview_options=LinkPreviewOptions(is_disabled=True),
-        )
+        if not sent_ok:
+            await bot_instance.send_message(
+                chat_id=chat_id,
+                text=caption,
+                reply_markup=keyboard,
+                link_preview_options=LinkPreviewOptions(is_disabled=True),
+            )
+            sent_ok = True
     except Exception as e:
         logger.error(f"send_gift_alert ошибка: {e}")
+
+    # Логируем алерт для daily digest. Никогда не блокирует основной поток.
+    if sent_ok:
+        try:
+            from database import log_alert
+            log_alert(market, gift)
+        except Exception:
+            logger.exception("send_gift_alert: log_alert провалился")
 
 
 async def send_alert(text: str):
