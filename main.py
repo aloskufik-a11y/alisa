@@ -265,8 +265,15 @@ async def main():
     # 9. Запускаем всё вместе.
     # Добавляем watchdog: как только _shutdown_event сработал (SIGTERM от Render),
     # явно отменяем все background tasks вместо жёсткого SIGKILL.
+    from config import FAST_POLL_INTERVAL
     main_tasks = [
-        asyncio.create_task(start_fragment_monitor(), name="fragment"),
+        # Full lane: все сортировки, обычный интервал. Подбирает то, что fast пропустил.
+        asyncio.create_task(start_fragment_monitor(), name="fragment_full"),
+        # Fast lane: только свежие листинги, быстрый такт ≈10s. Цель: ловим первыми.
+        asyncio.create_task(
+            start_fragment_monitor(interval=FAST_POLL_INTERVAL, sort_orders=["listed"]),
+            name="fragment_fast",
+        ),
         asyncio.create_task(start_notifier(), name="notifier"),
         asyncio.create_task(client.run_until_disconnected(), name="telethon"),
     ]

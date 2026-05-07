@@ -402,6 +402,15 @@
     margin-top: 8px; font-family: monospace;
   }
   .ai-input:focus { outline: none; border-color: var(--accent); }
+  .ai-input-wrap { position: relative; width: 100%; }
+  .ai-input-wrap .ai-input { padding-right: 44px; }
+  .ai-input-toggle {
+    position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+    background: transparent; border: none; color: var(--muted);
+    font-size: 18px; cursor: pointer; padding: 6px 8px; line-height: 1;
+    border-radius: 6px; min-width: 36px; min-height: 36px;
+  }
+  .ai-input-toggle:active { background: var(--card-h); }
   .setting--col { flex-direction: column !important; align-items: stretch !important; gap: 6px; }
   .setting--col .setting-label { width: 100%; }
 
@@ -1904,7 +1913,7 @@ function renderSettings() {
           <span class="setting-hint">Выберите провайдера и вставьте API-ключ ниже. Команда /ai_test в боте проверит что всё работает.</span>
         </div>
         <select class="ai-select" id="sel_ai_provider"
-                onchange="patchSetting('ai_provider', this.value); state.settings.ai_provider = this.value; renderSettings(); tg?.HapticFeedback?.selectionChanged();">
+                onchange="onAiProviderChange(this.value)">
           <option value="off"    ${(s.ai_provider || 'off') === 'off' ? 'selected' : ''}>— Выключен —</option>
           <option value="groq"   ${s.ai_provider === 'groq' ? 'selected' : ''}>⚡ Groq (быстрее, бесплатно)</option>
           <option value="gemini" ${s.ai_provider === 'gemini' ? 'selected' : ''}>✨ Google Gemini</option>
@@ -2265,12 +2274,26 @@ function selectRow(label, key, value, options, hint = '') {
     </div>`;
 }
 
+// Смена AI-провайдера: ставим новое значение в pendingSettings + state.settings
+// (чтобы условные блоки в renderSettings показались) и перерисовываем.
+// Это безопасно: password input теперь имеет value=, так что введённый ключ
+// сохраняется при перерисовке.
+function onAiProviderChange(value) {
+  patchSetting('ai_provider', value);
+  if (state.settings) state.settings.ai_provider = value;
+  renderSettings();
+  tg?.HapticFeedback?.selectionChanged();
+}
+
 function passwordRow(label, key, value, placeholder, hint = '') {
   const id = 'pw_' + key;
-  // Показываем последние 4 символа в подсказке если ключ непустой,
-  // в input всегда type=password.
+  // Показываем последние 4 символа в подсказке если ключ непустой.
   const tail = value && value.length > 4 ? '••••' + value.slice(-4) : '';
-  const extraHint = tail ? `<span class="setting-hint">Сохранено: <code>${tail}</code></span>` : '';
+  const extraHint = tail ? `<span class="setting-hint">Сохранено: <code>${escapeHtml(tail)}</code></span>` : '';
+  // value="…" критически важен: иначе при ререндере (любой patchSetting в
+  // другой настройке) input пересоздаётся пустым и пользователь думает что
+  // ключ стёрся. type=password всё равно скрывает значение визуально.
+  const safeVal = escapeHtml(value || '');
   return `
     <div class="setting setting--col">
       <div class="setting-label">
@@ -2278,10 +2301,23 @@ function passwordRow(label, key, value, placeholder, hint = '') {
         ${hint ? `<span class="setting-hint">${hint}</span>` : ''}
         ${extraHint}
       </div>
-      <input id="${id}" class="ai-input" type="password" autocomplete="off"
-             placeholder="${placeholder}"
-             oninput="patchSetting('${key}', this.value)" />
+      <div class="ai-input-wrap">
+        <input id="${id}" class="ai-input" type="password" autocomplete="off"
+               spellcheck="false" autocapitalize="off"
+               value="${safeVal}"
+               placeholder="${escapeHtml(placeholder)}"
+               oninput="patchSetting('${key}', this.value)" />
+        <button type="button" class="ai-input-toggle" onclick="toggleAiKeyVisibility('${id}', this)" aria-label="Показать/скрыть">👁</button>
+      </div>
     </div>`;
+}
+
+function toggleAiKeyVisibility(inputId, btn) {
+  const el = document.getElementById(inputId);
+  if (!el) return;
+  const visible = el.type === 'text';
+  el.type = visible ? 'password' : 'text';
+  btn.textContent = visible ? '👁' : '🙈';
 }
 
 async function saveSettings() {
