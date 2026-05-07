@@ -301,6 +301,47 @@ async def cmd_setwebapp(message: types.Message):
     )
 
 
+@dp.message(Command("ai_test"))
+async def cmd_ai_test(message: types.Message):
+    """Проверяет что AI-провайдер настроен и отвечает."""
+    if not _only_owner(message.from_user.id):
+        return
+    from ai_advisor import get_active_provider, test_provider
+    s = load_settings()
+    provider_name = (s.get("ai_provider") or "off").lower()
+    if provider_name == "off":
+        await message.answer(
+            "🤖 AI-провайдер не выбран.\n\n"
+            "Откройте Mini App → Настройки → 🤖 AI-помощник, выберите Groq или Gemini, "
+            "вставьте API-ключ и сохраните."
+        )
+        return
+    await message.answer(f"🤖 Тестирую {provider_name}…")
+    provider = get_active_provider(s)
+    ok, text = await test_provider(provider)
+    if ok:
+        await message.answer(
+            f"✅ <b>{provider_name}</b> работает\n\n"
+            f"<i>Ответ модели:</i>\n<code>{text[:500]}</code>"
+        )
+    else:
+        await message.answer(f"❌ <b>{provider_name}</b> не отвечает\n\n<i>{text}</i>")
+
+
+@dp.message(Command("digest"))
+async def cmd_digest(message: types.Message):
+    """Шлёт daily digest прямо сейчас (для проверки)."""
+    if not _only_owner(message.from_user.id):
+        return
+    from daily_digest import send_digest_now
+    s = load_settings()
+    window = int(s.get("daily_digest_window_hours", 24))
+    await message.answer(f"📊 Считаю digest за последние {window}ч…")
+    ok = await send_digest_now(message.bot, message.from_user.id, window_hours=window)
+    if not ok:
+        await message.answer("❌ Не удалось сформировать digest. Смотри логи.")
+
+
 @dp.message(Command("rate"))
 async def cmd_rate(message: types.Message):
     """Показывает текущий курс TON/Stars."""
@@ -1168,6 +1209,50 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
             log_alert(market, gift)
         except Exception:
             logger.exception("send_gift_alert: log_alert провалился")
+
+        # Если включен AI-вердикт для алертов И дисконт достаточный — спросим LLM
+        # асинхронно и пришлём отдельным сообщением (не редактируем оригинальный
+        # алерт чтобы avoid issues с photo-captions). 200-300мс не считается "ждать первым"
+        # потому что запускаем в fire-and-forget после успешной отправки.
+        try:
+            s_ai = load_settings()
+            if s_ai.get("ai_for_alerts"):
+                min_disc = float(s_ai.get("ai_alerts_min_discount_pct", 10.0))
+                if floor_valid:
+                    p = float(gift.get("price") or 0)
+                    f = float(floor)
+                    real_disc = (f - p) / f * 100 if f > 0 and p > 0 else 0
+                else:
+                    real_disc = 0
+                if real_disc >= min_disc or not floor_valid:
+                    asyncio.create_task(_send_ai_verdict(bot_instance, chat_id, gift, market))
+        except Exception:
+            logger.exception("send_gift_alert: AI-вердикт не запустился")
+
+
+async def _send_ai_verdict(bot_instance, chat_id: int, gift: dict, market: str) -> None:
+    """Запрашивает у активного AI-провайдера короткий вердикт и шлёт его как
+    follow-up сообщение под только что отправленным алертом."""
+    try:
+        from ai_advisor import get_active_provider, analyze_gift
+        provider = get_active_provider(load_settings())
+        if provider is None:
+            return
+        text = await analyze_gift(provider, gift, market)
+        if not text:
+            return
+        # Префикс эмодзи зависит от провайдера для прозрачности
+        provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
+            (load_settings().get("ai_provider") or "").lower(), "🤖"
+        )
+        await bot_instance.send_message(
+            chat_id=chat_id,
+            text=f"{provider_emoji} <i>AI: {text}</i>",
+            parse_mode="HTML",
+            link_preview_options=LinkPreviewOptions(is_disabled=True),
+        )
+    except Exception:
+        logger.exception("_send_ai_verdict: ошибка")
 
 
 async def send_alert(text: str):

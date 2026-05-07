@@ -157,6 +157,27 @@ async def send_digest_now(bot, user_id: int, window_hours: int = 24) -> bool:
     try:
         stats = compute_digest(window_hours=window_hours)
         text = format_digest_message(stats)
+
+        # Опциональный AI-брифинг сверху сводки. Если AI не настроен или ошибся —
+        # просто шлём базовый текст без AI.
+        try:
+            from settings_store import load_settings
+            s = load_settings()
+            if s.get("ai_for_digest") and stats.get("total_alerts", 0) > 0:
+                from ai_advisor import get_active_provider, analyze_daily
+                provider = get_active_provider(s)
+                if provider is not None:
+                    ai_text = await analyze_daily(provider, stats)
+                    if ai_text:
+                        provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
+                            (s.get("ai_provider") or "").lower(), "🤖"
+                        )
+                        text = (
+                            f"{provider_emoji} *AI-брифинг:*\n_{ai_text}_\n\n" + text
+                        )
+        except Exception:
+            logger.exception("Daily digest: AI-брифинг провалился, шлём базовый")
+
         await bot.send_message(
             chat_id=user_id,
             text=text,
