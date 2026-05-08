@@ -17,6 +17,7 @@ import aiohttp
 from telethon.tl import functions
 
 from database import is_gift_seen, add_gift
+import dedup_cache
 from logic import (
     parse_mrkt_json,
     parse_portals_search,
@@ -30,7 +31,12 @@ from floor_cache import (
     refresh_portals_loop,
 )
 from notifier import bot
-from config import MRKT_POLL_INTERVAL, FAST_POLL_INTERVAL, FAST_POLL_PAGES
+from config import (
+    MRKT_POLL_INTERVAL,
+    FAST_POLL_INTERVAL,
+    FAST_POLL_PAGES,
+    ALERT_DISPATCH_CONCURRENCY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -349,7 +355,22 @@ async def poll_mrkt(interval: int = MRKT_POLL_INTERVAL, pages_limit: int | None 
 # ─── Обработка листингов ─────────────────────────────────────────────────────
 
 async def process_listings(market: str, listings: list):
-    """Дедупликация, фильтрация и отправка уведомлений."""
+    """Дедупликация, фильтрация и отправка уведомлений.
+
+    Hot-path:
+      1) `dedup_cache.contains(uid)` — O(1) in-memory; если уже видели — пропускаем
+         без sqlite-roundtrip. Покрывает >95% запросов на горячих fast-lane циклах.
+      2) При промахе кэша — `add_gift()` (INSERT OR IGNORE), результат говорит
+         «новый ли лот». Drop-предыдущий `is_gift_seen` SELECT — лишняя поездка
+         в DB; INSERT OR IGNORE атомарно делает обе операции.
+      3) После add_gift uid маркаем в кэш (даже если не новый — ускоряем будущие
+         хиты).
+
+    Early-exit: API возвращает items в порядке listed_at DESC. Если первые N
+    подряд уже в hot-cache — вся страница «холодная»; смысла продолжать парсинг
+    нет. Это не теряет лоты: full-lane (обходит все страницы каждые 60с) всё
+    равно поднимет всё что fast-lane не успел.
+    """
     from settings_store import load_settings
     from config import USER_ID
     from notifier import send_gift_alert
@@ -366,16 +387,26 @@ async def process_listings(market: str, listings: list):
     new_count = 0
     alerted_count = 0
     skipped_by_limit = 0
+    consecutive_seen = 0  # сколько подряд лотов уже в cache → тригер early-exit
+    EARLY_EXIT_THRESHOLD = 5
     pending_alerts: list[dict] = []  # батч для параллельной отправки в конце цикла
 
     for item in listings:
         uid = f"{market}_{item['id']}"
 
-        # Быстрая проверка — сначала in-memory, потом БД
-        if is_gift_seen(uid):
+        # 1) Hot-cache — микросекундная проверка перед DB
+        if dedup_cache.contains(uid):
+            consecutive_seen += 1
+            # Top-of-list 5 подряд старых → дальше тоже всё старое (API DESC по listed_at)
+            if consecutive_seen >= EARLY_EXIT_THRESHOLD:
+                break
             continue
 
+        consecutive_seen = 0
+        # 2) Cache miss → проверяем БД через атомарный INSERT OR IGNORE
         is_new = add_gift(uid, item["name"], item["price"], market)
+        # 3) Маркаем в hot-cache в любом случае — следующий цикл сразу пропустит
+        dedup_cache.mark_seen(uid)
         if not is_new:
             continue
 
@@ -405,10 +436,11 @@ async def process_listings(market: str, listings: list):
         pending_alerts.append(item)
         alerted_count += 1
 
-    # Параллельная отправка всех алертов одного цикла. Семафор=8 — безопасно ниже
-    # Telegram-лимита 30 msg/sec на одного пользователя. aiogram сам обработает RetryAfter.
+    # Параллельная отправка всех алертов одного цикла. Семафор=ALERT_DISPATCH_CONCURRENCY
+    # — безопасно ниже Telegram-лимита 30 msg/sec на одного пользователя.
+    # aiogram сам обработает RetryAfter.
     if pending_alerts:
-        sem = asyncio.Semaphore(8)
+        sem = asyncio.Semaphore(ALERT_DISPATCH_CONCURRENCY)
         async def _dispatch(it: dict) -> None:
             async with sem:
                 try:

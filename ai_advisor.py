@@ -10,13 +10,22 @@ AI advisor — обёртка над LLM-провайдерами Groq и Google
 - BaseProvider — protocol с одним методом async chat(messages, **kw) -> str
 - GroqProvider, GeminiProvider — реализации
 - get_active_provider(settings) -> BaseProvider | None
-- analyze_gift(provider, gift, context) -> str
+- get_fast_provider(settings) -> BaseProvider | None — быстрая модель для авто-вердиктов
+- get_fallback_provider(settings) -> BaseProvider | None — резерв при квоте/сбое
+- analyze_gift(provider, gift, context, task=...) -> str
 - analyze_daily(provider, digest_stats) -> str
 - free_chat(provider, question) -> str
 
 Persona-профили: trader / speculator / collector / custom — разный тон и приоритеты.
 Все ошибки сетевые/auth/quota не ронят бот — функции возвращают пустую строку
 и логируют warning. aiohttp.ClientSession переиспользуется (один на провайдер).
+
+v2 фишки (2026-05):
+- Per-task model selection: авто-вердикт идёт на ai_fast_model (llama-3.1-8b-instant
+  по дефолту, ~50-150ms), /ai_ask и digest — на основной более умной модели.
+- Response cache: вердикт по re-listing того же лота берётся из памяти (ttl 5 мин).
+- Fallback chain: при ошибке/таймауте основного провайдера — пытаемся резерв.
+- Stats counters: команда /ai_stats показывает hit-rate / по-провайдеру / по-задаче.
 """
 from __future__ import annotations
 
@@ -25,6 +34,8 @@ import logging
 from typing import Any
 
 import aiohttp
+
+import ai_cache
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +81,7 @@ GEMINI_MODELS = [
 class GroqProvider:
     """Groq — OpenAI-compatible API. Документация: https://console.groq.com/docs"""
 
+    name = "groq"
     BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 
     def __init__(self, api_key: str, model: str = "llama-3.3-70b-versatile"):
@@ -98,12 +110,12 @@ class GroqProvider:
             ) as resp:
                 if resp.status != 200:
                     body = (await resp.text())[:300]
-                    logger.warning(f"Groq API {resp.status}: {body}")
+                    logger.warning(f"Groq API {resp.status} model={self.model}: {body}")
                     return ""
                 data = await resp.json()
                 return (data["choices"][0]["message"]["content"] or "").strip()
         except asyncio.TimeoutError:
-            logger.warning("Groq API: timeout")
+            logger.warning(f"Groq API: timeout (model={self.model})")
             return ""
         except Exception:
             logger.exception("Groq API: unexpected error")
@@ -113,6 +125,7 @@ class GroqProvider:
 class GeminiProvider:
     """Google Gemini — REST API. Документация: https://ai.google.dev/api"""
 
+    name = "gemini"
     BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
     def __init__(self, api_key: str, model: str = "gemini-2.0-flash"):
@@ -142,7 +155,7 @@ class GeminiProvider:
             async with session.post(url, json=payload) as resp:
                 if resp.status != 200:
                     body = (await resp.text())[:300]
-                    logger.warning(f"Gemini API {resp.status}: {body}")
+                    logger.warning(f"Gemini API {resp.status} model={self.model}: {body}")
                     return ""
                 data = await resp.json()
                 candidates = data.get("candidates") or []
@@ -152,7 +165,7 @@ class GeminiProvider:
                 text = "".join(p.get("text", "") for p in parts).strip()
                 return text
         except asyncio.TimeoutError:
-            logger.warning("Gemini API: timeout")
+            logger.warning(f"Gemini API: timeout (model={self.model})")
             return ""
         except Exception:
             logger.exception("Gemini API: unexpected error")
@@ -163,26 +176,89 @@ class GeminiProvider:
 # Factory
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_active_provider(settings: dict) -> Any | None:
-    """Создаёт провайдер по выбранному в settings, или None если AI выключен."""
-    provider_name = (settings.get("ai_provider") or "off").lower().strip()
-    if provider_name == "groq":
-        key = (settings.get("groq_api_key") or "").strip()
-        model = (settings.get("groq_model") or GROQ_MODELS[0]).strip()
-        if not key:
-            return None
+def _build_provider(name: str, api_key: str, model: str) -> Any | None:
+    """Универсальная фабрика по строковому имени.
+    Возвращает None если ключа нет / провайдер неизвестен."""
+    name = (name or "").lower().strip()
+    api_key = (api_key or "").strip()
+    model = (model or "").strip()
+    if not api_key:
+        return None
+    if name == "groq":
         if model not in GROQ_MODELS:
             model = GROQ_MODELS[0]
-        return GroqProvider(api_key=key, model=model)
-    if provider_name == "gemini":
-        key = (settings.get("gemini_api_key") or "").strip()
-        model = (settings.get("gemini_model") or GEMINI_MODELS[0]).strip()
-        if not key:
-            return None
+        return GroqProvider(api_key=api_key, model=model)
+    if name == "gemini":
         if model not in GEMINI_MODELS:
             model = GEMINI_MODELS[0]
-        return GeminiProvider(api_key=key, model=model)
+        return GeminiProvider(api_key=api_key, model=model)
     return None
+
+
+def get_active_provider(settings: dict) -> Any | None:
+    """Основной провайдер для /ai_ask, daily digest, on-demand vердикта."""
+    provider_name = (settings.get("ai_provider") or "off").lower().strip()
+    if provider_name == "groq":
+        return _build_provider(
+            "groq",
+            settings.get("groq_api_key") or "",
+            settings.get("groq_model") or GROQ_MODELS[0],
+        )
+    if provider_name == "gemini":
+        return _build_provider(
+            "gemini",
+            settings.get("gemini_api_key") or "",
+            settings.get("gemini_model") or GEMINI_MODELS[0],
+        )
+    return None
+
+
+def get_fast_provider(settings: dict) -> Any | None:
+    """Быстрый провайдер для авто-вердикта под алертом (fire-and-forget).
+
+    Использует тот же API-ключ, что и основной, но более быстрая модель —
+    `ai_fast_model` (по дефолту llama-3.1-8b-instant). Если основной провайдер
+    Gemini — пытаемся использовать gemini-2.0-flash-lite (если разрешён),
+    иначе fallback на основную модель.
+
+    Возвращает None если основной провайдер не настроен.
+    """
+    provider_name = (settings.get("ai_provider") or "off").lower().strip()
+    fast_model = (settings.get("ai_fast_model") or "").strip()
+    if provider_name == "groq":
+        key = settings.get("groq_api_key") or ""
+        # llama-3.1-8b-instant ≈ 50-150ms — это самая быстрая Groq-модель
+        model = fast_model if fast_model in GROQ_MODELS else "llama-3.1-8b-instant"
+        if model not in GROQ_MODELS:
+            model = settings.get("groq_model") or GROQ_MODELS[0]
+        return _build_provider("groq", key, model)
+    if provider_name == "gemini":
+        key = settings.get("gemini_api_key") or ""
+        # gemini-2.0-flash-lite — самая быстрая среди Gemini
+        model = fast_model if fast_model in GEMINI_MODELS else "gemini-2.0-flash-lite"
+        if model not in GEMINI_MODELS:
+            model = settings.get("gemini_model") or GEMINI_MODELS[0]
+        return _build_provider("gemini", key, model)
+    return None
+
+
+def get_fallback_provider(settings: dict) -> Any | None:
+    """Резервный провайдер, отдельный от основного. Используется при сбое/квоте."""
+    fb = (settings.get("ai_fallback_provider") or "off").lower().strip()
+    if fb in ("", "off", "none"):
+        return None
+    key = (settings.get("ai_fallback_api_key") or "").strip()
+    if not key:
+        # Если резервный ключ не задан, но включен fallback — пробуем основной ключ
+        # того же провайдера (на случай если у пользователя один ключ Groq и
+        # один Gemini — он мог поставить как primary один, а как fallback другой
+        # но забыть прописать ключ).
+        if fb == "groq":
+            key = (settings.get("groq_api_key") or "").strip()
+        elif fb == "gemini":
+            key = (settings.get("gemini_api_key") or "").strip()
+    model = (settings.get("ai_fallback_model") or "").strip()
+    return _build_provider(fb, key, model)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -226,9 +302,11 @@ AI_PERSONAS = {
 }
 
 GIFT_VERDICT_FORMAT = (
-    " Отвечай КРАТКО (1-3 предложения, < 250 знаков), на русском, без воды. "
-    "Используй только переданные данные. Если данных мало — скажи об этом. "
-    "Не используй markdown, заголовки, списки. Только сплошной текст."
+    " Отвечай СТРОГО в формате: первая строка — одно слово BUY / HOLD / SKIP, "
+    "затем «conf:N/10» где N=0-10 уверенность; затем тире и 1-2 предложения "
+    "почему именно так. Всего < 250 знаков, русский, без markdown. "
+    "Используй только переданные данные. Если данных мало — conf:1/10 + "
+    "пометка 'мало данных'."
 )
 
 DIGEST_SUMMARY_SYSTEM = """\
@@ -324,35 +402,92 @@ def _format_digest_for_ai(stats: dict) -> str:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
+async def _chat_with_fallback(primary: Any, fallback: Any | None,
+                              system: str, user: str, *,
+                              max_tokens: int = 180,
+                              temperature: float = 0.7,
+                              task: str = "auto") -> tuple[str, str]:
+    """Зовёт primary, при пустом ответе пытается fallback.
+    Возвращает (text, used_provider_name)."""
+    text = await primary.chat(system, user, max_tokens=max_tokens,
+                              temperature=temperature)
+    if text:
+        ai_cache.record_miss(primary.name, len(system) + len(user), len(text))
+        return text, primary.name
+    if fallback is not None and fallback.name != primary.name:
+        ai_cache.record_fallback()
+        text = await fallback.chat(system, user, max_tokens=max_tokens,
+                                   temperature=temperature)
+        if text:
+            ai_cache.record_miss(fallback.name, len(system) + len(user), len(text))
+            return text, fallback.name
+    ai_cache.record_error()
+    return "", primary.name
+
+
 async def analyze_gift(provider: Any, gift: dict, market: str,
-                       settings: dict | None = None) -> str:
+                       settings: dict | None = None,
+                       *, task: str = "on_demand",
+                       fallback: Any | None = None) -> str:
     """Возвращает 1-3 предложения с вердиктом по конкретному лоту, или ''.
+
     settings: текущий снапшот настроек, чтобы выбрать persona/custom prompt.
+    task:     "auto" (под алертом, кэш агрессивный) | "on_demand" (нажал кнопку,
+              кэш более мягкий — пользователь хочет «свежее» мнение).
+    fallback: резервный провайдер (если primary вернёт пусто).
     """
     if provider is None:
         return ""
     s = settings or {}
+    persona = (s.get("ai_persona") or "balanced").lower().strip()
+    model = getattr(provider, "model", "")
+    sig = ai_cache.make_signature(gift, market, persona=persona, model=model)
+    ttl = int(s.get("ai_cache_ttl_sec") or 0)
+    # Auto-вердикт берёт из кэша агрессивно; on_demand — только если очень свежий.
+    effective_ttl = ttl if task == "auto" else min(ttl, 60)
+    ai_cache.record_request(task)
+    cached = ai_cache.get(sig, effective_ttl)
+    if cached is not None:
+        return cached
     system = _resolve_system_prompt(s, GIFT_VERDICT_FORMAT)
     user_prompt = _format_gift_for_ai(gift, market)
-    return await provider.chat(system, user_prompt, max_tokens=180)
+    text, _ = await _chat_with_fallback(
+        provider, fallback, system, user_prompt,
+        max_tokens=180, temperature=0.6, task=task,
+    )
+    if text:
+        ai_cache.put(sig, text)
+    return text
 
 
-async def analyze_daily(provider: Any, digest_stats: dict) -> str:
+async def analyze_daily(provider: Any, digest_stats: dict,
+                        *, fallback: Any | None = None) -> str:
     """Брифинг по сводке за сутки, или ''."""
     if provider is None:
         return ""
+    ai_cache.record_request("digest")
     user_prompt = _format_digest_for_ai(digest_stats)
-    return await provider.chat(DIGEST_SUMMARY_SYSTEM, user_prompt, max_tokens=350)
+    text, _ = await _chat_with_fallback(
+        provider, fallback, DIGEST_SUMMARY_SYSTEM, user_prompt,
+        max_tokens=350, temperature=0.7, task="digest",
+    )
+    return text
 
 
-async def free_chat(provider: Any, question: str) -> str:
+async def free_chat(provider: Any, question: str,
+                    *, fallback: Any | None = None) -> str:
     """Свободный диалог. Используется командой /ai_ask."""
     if provider is None:
         return ""
     q = (question or "").strip()
     if not q:
         return ""
-    return await provider.chat(FREE_CHAT_SYSTEM, q[:1000], max_tokens=400)
+    ai_cache.record_request("chat")
+    text, _ = await _chat_with_fallback(
+        provider, fallback, FREE_CHAT_SYSTEM, q[:1000],
+        max_tokens=400, temperature=0.7, task="chat",
+    )
+    return text
 
 
 async def test_provider(provider: Any) -> tuple[bool, str]:

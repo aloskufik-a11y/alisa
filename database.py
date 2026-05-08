@@ -90,6 +90,30 @@ def add_gift(gift_id: str, name: str, price: float, source: str) -> bool:
         return cursor.rowcount > 0
 
 
+def add_gifts_bulk(rows: list[tuple[str, str, float, str]]) -> int:
+    """Атомарно добавляет N записей в один транзакционный коммит.
+
+    rows: список кортежей (gift_id, name, price, source).
+    Возвращает количество вставленных строк (тех, которых не было).
+
+    Один commit на всю партию = ~10x быстрее чем N add_gift в цикле,
+    так как WAL-fsync дорогой. Используется на fast-lane чтобы не задерживать
+    отправку алертов на сериализацию sqlite.
+    """
+    if not rows:
+        return 0
+    with _get_conn() as conn:
+        cursor = conn.executemany(
+            "INSERT OR IGNORE INTO gifts (id, name, price, source) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        # rowcount у executemany не всегда корректен (sqlite ≤3.32 возвращает -1),
+        # но для INSERT OR IGNORE на свежих версиях возвращает сумму. Если -1,
+        # консервативно вернём len(rows) (worst case = «все вставились»).
+        return cursor.rowcount if cursor.rowcount >= 0 else len(rows)
+
+
 def cleanup_old_gifts(days: int = 14) -> int:
     """Удаляет записи старше N дней. Возвращает количество удалённых."""
     with _get_conn() as conn:

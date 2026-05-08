@@ -164,10 +164,15 @@ async def send_digest_now(bot, user_id: int, window_hours: int = 24) -> bool:
             from settings_store import load_settings
             s = load_settings()
             if s.get("ai_for_digest") and stats.get("total_alerts", 0) > 0:
-                from ai_advisor import get_active_provider, analyze_daily
+                from ai_advisor import (
+                    get_active_provider,
+                    get_fallback_provider,
+                    analyze_daily,
+                )
                 provider = get_active_provider(s)
+                fallback = get_fallback_provider(s)
                 if provider is not None:
-                    ai_text = await analyze_daily(provider, stats)
+                    ai_text = await analyze_daily(provider, stats, fallback=fallback)
                     if ai_text:
                         provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
                             (s.get("ai_provider") or "").lower(), "🤖"
