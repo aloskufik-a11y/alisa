@@ -17,7 +17,8 @@ import logging
 import random
 import aiohttp
 
-from database import is_gift_seen, add_gift
+from database import is_gift_seen, add_gift  # noqa: F401  # is_gift_seen kept for backward-compat
+import dedup_cache
 from logic import (
     parse_fragment_html,
     is_profitable,
@@ -25,7 +26,7 @@ from logic import (
     format_stars,
     apply_floors,
 )
-from config import FRAGMENT_POLL_INTERVAL
+from config import FRAGMENT_POLL_INTERVAL, ALERT_DISPATCH_CONCURRENCY
 from rate_provider import rate_provider
 
 logger = logging.getLogger(__name__)
@@ -223,17 +224,31 @@ async def start_fragment_monitor(interval: int | None = None, sort_orders: list[
                 new_count = 0
                 alerted_count = 0
                 skipped_by_limit = 0
+                consecutive_seen = 0
+                EARLY_EXIT_THRESHOLD = 5
                 pending_alerts: list[dict] = []
                 for gift in gifts:
                     uid = f"fragment_{gift['id']}"
 
-                    if is_gift_seen(uid):
+                    # Hot-cache O(1) перед DB-roundtrip. См. mini_app_scraper.process_listings.
+                    if dedup_cache.contains(uid):
+                        consecutive_seen += 1
+                        if consecutive_seen >= EARLY_EXIT_THRESHOLD:
+                            break
                         continue
+
+                    consecutive_seen = 0
 
                     if not is_profitable(gift, "fragment"):
+                        # Не выгодный — маркаем seen, чтобы не пересчитывать каждый цикл.
+                        dedup_cache.mark_seen(uid)
                         continue
 
-                    add_gift(uid, gift["name"], gift["price"], "fragment")
+                    is_new = add_gift(uid, gift["name"], gift["price"], "fragment")
+                    dedup_cache.mark_seen(uid)
+                    if not is_new:
+                        # Уже был в БД (cache промахнулся, например после рестарта)
+                        continue
                     new_count += 1
 
                     if max_per_cycle > 0 and alerted_count >= max_per_cycle:
@@ -252,11 +267,12 @@ async def start_fragment_monitor(interval: int | None = None, sort_orders: list[
                     alerted_count += 1
 
                 # Параллельная отправка пачки. См. mini_app_scraper.process_listings —
-                # тот же паттерн: одна семафор-обёртка, сем=8 безопасно по rate-limit Telegram.
+                # тот же паттерн: одна семафор-обёртка по ALERT_DISPATCH_CONCURRENCY,
+                # безопасно ниже rate-limit Telegram (30/sec/user).
                 if pending_alerts:
                     from notifier import send_gift_alert, bot
                     from config import USER_ID
-                    sem = asyncio.Semaphore(8)
+                    sem = asyncio.Semaphore(ALERT_DISPATCH_CONCURRENCY)
 
                     async def _dispatch(g: dict) -> None:
                         async with sem:

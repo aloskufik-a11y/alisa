@@ -99,6 +99,20 @@ DEFAULT_SETTINGS: dict = {
     # Кастомный system prompt для AI (≤ 800 символов). Если ai_persona == "custom",
     # этот prompt заменяет встроенный. Если пустой — fallback на balanced.
     "ai_custom_prompt":         "",
+
+    # ── AI v2: per-task models, fallback chain, response cache ──────────────
+    # Для авто-вердикта под каждым алертом используется быстрая дешёвая модель
+    # (≈ 50-150ms). Для /ai_ask и daily digest — основная модель (ai_provider/ai_model).
+    # Если ai_fast_model пустая — на авто-вердикты идёт основная модель.
+    "ai_fast_model":            "llama-3.1-8b-instant",  # быстрейший Groq
+    # Резервный провайдер на случай сбоя/квоты основного. "off" = без fallback.
+    "ai_fallback_provider":     "off",   # "off" | "groq" | "gemini"
+    "ai_fallback_api_key":      "",
+    "ai_fallback_model":        "",      # пусто → дефолт провайдера
+    # TTL кэша AI-ответов (секунды). 0 = выключить кэш. Кэш хранит вердикт по
+    # (имя+model+backdrop+цена-bucket+floor-bucket) — re-listings того же лота
+    # не жгут токены лишний раз.
+    "ai_cache_ttl_sec":         300,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

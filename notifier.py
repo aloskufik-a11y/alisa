@@ -370,9 +370,10 @@ async def cmd_ai_ask(message: types.Message):
     """Свободный диалог с AI. Использование: /ai_ask <вопрос>"""
     if not _only_owner(message.from_user.id):
         return
-    from ai_advisor import get_active_provider, free_chat
+    from ai_advisor import get_active_provider, get_fallback_provider, free_chat
     s = load_settings()
     provider = get_active_provider(s)
+    fallback = get_fallback_provider(s)
     if provider is None:
         await message.answer(
             "🤖 AI-провайдер не настроен.\n\n"
@@ -389,7 +390,7 @@ async def cmd_ai_ask(message: types.Message):
         return
     question = parts[1].strip()[:1000]
     placeholder = await message.answer(f"🤖 Думаю над вопросом…")
-    answer = await free_chat(provider, question)
+    answer = await free_chat(provider, question, fallback=fallback)
     if not answer:
         await placeholder.edit_text(
             "❌ AI не ответил. Возможно лимит токенов или ошибка ключа. "
@@ -403,6 +404,55 @@ async def cmd_ai_ask(message: types.Message):
         f"{provider_emoji} <b>AI</b>\n\n{answer[:3500]}",
         parse_mode="HTML",
     )
+
+
+@dp.message(Command("ai_stats"))
+async def cmd_ai_stats(message: types.Message):
+    """Показывает статистику AI: запросы, cache hit-rate, провайдеры, оценка токенов."""
+    if not _only_owner(message.from_user.id):
+        return
+    import ai_cache
+    st = ai_cache.get_stats()
+    requests = st.get("requests", 0)
+    hits = st.get("cache_hits", 0)
+    miss = st.get("cache_miss", 0)
+    fallbacks = st.get("fallbacks", 0)
+    errors = st.get("errors", 0)
+    hit_rate = (hits / requests * 100.0) if requests else 0.0
+    by_prov = st.get("by_provider") or {}
+    by_task = st.get("by_task") or {}
+    in_tokens = st.get("est_input_tokens", 0)
+    out_tokens = st.get("est_output_tokens", 0)
+    cache_size = st.get("cache_size", 0)
+    s = load_settings()
+    primary = (s.get("ai_provider") or "off").lower()
+    primary_model = (s.get(f"{primary}_model") if primary in ("groq", "gemini") else "") or "—"
+    fast_model = (s.get("ai_fast_model") or "—")
+    fb_provider = (s.get("ai_fallback_provider") or "off").lower()
+    fb_model = (s.get("ai_fallback_model") or "—") if fb_provider != "off" else "—"
+    ttl = int(s.get("ai_cache_ttl_sec") or 0)
+
+    by_prov_lines = ", ".join(f"{k}={v}" for k, v in by_prov.items()) or "—"
+    by_task_lines = ", ".join(f"{k}={v}" for k, v in by_task.items()) or "—"
+
+    text = (
+        "🤖 <b>AI Stats</b>\n\n"
+        f"<b>Конфиг:</b>\n"
+        f"  • основная: <code>{primary}</code> / <code>{primary_model}</code>\n"
+        f"  • быстрая (auto-verdict): <code>{fast_model}</code>\n"
+        f"  • fallback: <code>{fb_provider}</code> / <code>{fb_model}</code>\n"
+        f"  • cache TTL: <code>{ttl}s</code>\n\n"
+        f"<b>Запросы:</b> {requests}\n"
+        f"  • из кэша: {hits} ({hit_rate:.0f}%)\n"
+        f"  • в LLM: {miss}\n"
+        f"  • fallback использован: {fallbacks}\n"
+        f"  • ошибок (пустой ответ от обоих): {errors}\n\n"
+        f"<b>По провайдерам:</b> {by_prov_lines}\n"
+        f"<b>По задачам:</b> {by_task_lines}\n\n"
+        f"<b>Оценка токенов:</b> in≈{in_tokens}, out≈{out_tokens}\n"
+        f"<b>Размер кэша:</b> {cache_size} записей"
+    )
+    await message.answer(text, parse_mode="HTML")
 
 
 @dp.message(Command("rate"))
@@ -441,8 +491,13 @@ async def cb_ai_ask(callback: CallbackQuery):
         )
         return
     s = load_settings()
-    from ai_advisor import get_active_provider, analyze_gift
+    from ai_advisor import (
+        get_active_provider,
+        get_fallback_provider,
+        analyze_gift,
+    )
     provider = get_active_provider(s)
+    fallback = get_fallback_provider(s)
     if provider is None:
         await callback.answer(
             "AI не настроен. Откройте Mini App → AI-помощник.",
@@ -450,7 +505,11 @@ async def cb_ai_ask(callback: CallbackQuery):
         )
         return
     await callback.answer("🤖 Спрашиваю AI…")
-    text = await analyze_gift(provider, cached["gift"], cached["market"], settings=s)
+    # task=on_demand → cache-TTL короче (≤60с): пользователь хочет «свежее» мнение.
+    text = await analyze_gift(
+        provider, cached["gift"], cached["market"],
+        settings=s, task="on_demand", fallback=fallback,
+    )
     if not text:
         await callback.message.answer(
             "❌ AI не ответил. Возможно лимит токенов или сетевая ошибка.",
@@ -1349,14 +1408,30 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
 
 async def _send_ai_verdict(bot_instance, chat_id: int, gift: dict, market: str) -> None:
     """Запрашивает у активного AI-провайдера короткий вердикт и шлёт его как
-    follow-up сообщение под только что отправленным алертом."""
+    follow-up сообщение под только что отправленным алертом.
+
+    Использует **быструю** модель (`get_fast_provider`) — авто-вердикт должен
+    приходить ≈ за 100-300 мс, чтобы не отставать от user perception. Если
+    fast-провайдер не настроен (нет ключа) — fallback на основной.
+    Если основной возвращает пусто — fallback на резервного провайдера.
+    """
     try:
-        from ai_advisor import get_active_provider, analyze_gift
+        from ai_advisor import (
+            get_active_provider,
+            get_fast_provider,
+            get_fallback_provider,
+            analyze_gift,
+        )
         s = load_settings()
-        provider = get_active_provider(s)
+        # Под алертом — быстрая модель (auto task), кэш по сигнатуре лота
+        provider = get_fast_provider(s) or get_active_provider(s)
         if provider is None:
             return
-        text = await analyze_gift(provider, gift, market, settings=s)
+        fallback = get_fallback_provider(s)
+        text = await analyze_gift(
+            provider, gift, market,
+            settings=s, task="auto", fallback=fallback,
+        )
         if not text:
             return
         # Префикс эмодзи зависит от провайдера для прозрачности
