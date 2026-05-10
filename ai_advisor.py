@@ -361,9 +361,33 @@ def _format_gift_for_ai(gift: dict, market: str) -> str:
     extras_str = (", " + ", ".join(extras)) if extras else ""
 
     floor_str = f", floor={floor}" if floor else ""
+
+    # Контекст: статистика по коллекции за 24ч из alerts_log.
+    # Помогает модели сравнить текущий лот с историей: «5 алертов, лучший
+    # дисконт −18%, средняя цена 2.4 TON». Без этого AI «слепой».
+    history_str = ""
+    try:
+        from database import collection_history
+        h = collection_history(name, hours=24) if name and name != "?" else {}
+        if h.get("alerts_count"):
+            cnt = h["alerts_count"]
+            best = h.get("best_discount_pct")
+            avg = h.get("avg_discount_pct")
+            min_p = h.get("min_price")
+            parts = [f"24ч: {cnt} алертов"]
+            if best is not None:
+                parts.append(f"лучший −{best}%")
+            if avg is not None:
+                parts.append(f"средний −{avg}%")
+            if min_p is not None:
+                parts.append(f"min={min_p}TON")
+            history_str = " | " + ", ".join(parts)
+    except Exception:
+        pass
+
     return (
         f"{name} #{number}, маркет={market}, цена={price} TON"
-        f"{floor_str}{discount}{rar_str}{extras_str}"
+        f"{floor_str}{discount}{rar_str}{extras_str}{history_str}"
     )
 
 
