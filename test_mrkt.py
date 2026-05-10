@@ -1182,6 +1182,36 @@ try:
     n3 = _db_module.add_gifts_bulk(mixed)
     test("add_gifts_bulk: микс — только новые считаются", n3 == 1)
 
+    # collection_history: пустая БД для имени без алертов
+    empty = _db_module.collection_history("Nonexistent Collection", hours=24)
+    test("collection_history: нет алертов → {}", empty == {})
+
+    # collection_history: пустое имя → {}
+    test("collection_history: пустое имя → {}",
+         _db_module.collection_history("", hours=24) == {})
+
+    # collection_history: после log_alert считает корректно
+    _db_module.log_alert("mrkt", {
+        "id": "h1", "name": "TestColl", "number": "1",
+        "price": 5.0, "floor_price": 6.0,
+        "rarities_pm": {"model": 5},
+    })
+    _db_module.log_alert("mrkt", {
+        "id": "h2", "name": "TestColl", "number": "2",
+        "price": 4.0, "floor_price": 6.0,
+    })
+    _db_module.log_alert("portals", {
+        "id": "h3", "name": "OtherColl", "number": "1",
+        "price": 10.0, "floor_price": 12.0,
+    })
+    h = _db_module.collection_history("TestColl", hours=24)
+    test("collection_history: 2 алерта по TestColl",
+         h.get("alerts_count") == 2)
+    test("collection_history: min_price корректен",
+         h.get("min_price") == 4.0)
+    test("collection_history: case-insensitive (testcoll → TestColl)",
+         _db_module.collection_history("testcoll", hours=24).get("alerts_count") == 2)
+
     try:
         _os.unlink(tmp_db.name)
     except OSError:

@@ -191,6 +191,49 @@ def fetch_alerts_window(hours: int = 24) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def collection_history(name: str, hours: int = 24) -> dict:
+    """Агрегированная статистика по коллекции за последние N часов.
+    Используется AI-вердиктом чтобы дать модели контекст «было ли что-то
+    дешевле у этой коллекции за последние сутки».
+
+    Возвращает {} если нет данных или ошибка.
+    """
+    if not name:
+        return {}
+    try:
+        with _get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt,
+                       MIN(price)       AS min_price,
+                       AVG(price)       AS avg_price,
+                       MIN(floor_price) AS min_floor,
+                       AVG(floor_price) AS avg_floor,
+                       MAX(discount_pct) AS best_discount_pct,
+                       AVG(discount_pct) AS avg_discount_pct
+                  FROM alerts_log
+                 WHERE LOWER(name) = LOWER(?)
+                   AND timestamp >= datetime('now', ?)
+                """,
+                (name.strip(), f"-{int(hours)} hours"),
+            ).fetchone()
+        if not row or not row[0]:
+            return {}
+        cnt, min_p, avg_p, min_f, avg_f, best_d, avg_d = row
+        return {
+            "alerts_count": int(cnt),
+            "min_price": round(float(min_p), 2) if min_p is not None else None,
+            "avg_price": round(float(avg_p), 2) if avg_p is not None else None,
+            "min_floor": round(float(min_f), 2) if min_f is not None else None,
+            "avg_floor": round(float(avg_f), 2) if avg_f is not None else None,
+            "best_discount_pct": round(float(best_d), 1) if best_d is not None else None,
+            "avg_discount_pct": round(float(avg_d), 1) if avg_d is not None else None,
+            "window_hours": int(hours),
+        }
+    except Exception:
+        return {}
+
+
 def get_stats() -> dict:
     """Возвращает статистику по БД (используется командой /status)."""
     with _get_conn() as conn:
