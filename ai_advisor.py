@@ -438,7 +438,12 @@ async def _chat_with_fallback(primary: Any, fallback: Any | None,
     if text:
         ai_cache.record_miss(primary.name, len(system) + len(user), len(text))
         return text, primary.name
-    if fallback is not None and fallback.name != primary.name:
+    # Fallback при пустом ответе. Проверяем что fallback != primary полностью
+    # (имя+модель), иначе тот же неработающий вызов повторим.
+    if fallback is not None and (
+        fallback.name != primary.name
+        or getattr(fallback, "model", "") != getattr(primary, "model", "")
+    ):
         ai_cache.record_fallback()
         text = await fallback.chat(system, user, max_tokens=max_tokens,
                                    temperature=temperature)
