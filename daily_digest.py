@@ -218,9 +218,13 @@ async def start_digest_scheduler(bot, user_id: int) -> None:
             today_str = now.strftime("%Y-%m-%d")
             last_sent = settings.get("last_digest_date")
 
+            # Шлём если: enabled И ещё не слали сегодня И уже наступил target_hour.
+            # Раньше требовали `now.hour == target_hour` строго — но при перезагрузке
+            # бота сразу после target_hour digest пропускался до следующего дня.
+            # Теперь надёжнее: если бот стартовал в 06:01, а target=6, всё равно шлём.
             should_send = (
                 enabled
-                and now.hour == target_hour
+                and now.hour >= target_hour
                 and last_sent != today_str
             )
 
