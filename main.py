@@ -265,7 +265,8 @@ async def main():
     # 9. Запускаем всё вместе.
     # Добавляем watchdog: как только _shutdown_event сработал (SIGTERM от Render),
     # явно отменяем все background tasks вместо жёсткого SIGKILL.
-    from config import FAST_POLL_INTERVAL
+    from config import FAST_POLL_INTERVAL, GETGEMS_API_KEY
+    from getgems_scraper import start_getgems_monitor
     main_tasks = [
         # Full lane: все сортировки, обычный интервал. Подбирает то, что fast пропустил.
         asyncio.create_task(start_fragment_monitor(), name="fragment_full"),
@@ -277,6 +278,23 @@ async def main():
         asyncio.create_task(start_notifier(), name="notifier"),
         asyncio.create_task(client.run_until_disconnected(), name="telethon"),
     ]
+    # Getgems поднимаем только если есть ключ (без ключа API возвращает 401).
+    if GETGEMS_API_KEY:
+        main_tasks.append(
+            asyncio.create_task(start_getgems_monitor(), name="getgems_full")
+        )
+        main_tasks.append(
+            asyncio.create_task(
+                start_getgems_monitor(interval=FAST_POLL_INTERVAL),
+                name="getgems_fast",
+            )
+        )
+        logger.info("Getgems мониторинг включён (full + fast lane)")
+    else:
+        logger.info(
+            "Getgems мониторинг выключен (GETGEMS_API_KEY не задан) — "
+            "ожидаются 3 маркета"
+        )
     shutdown_task = asyncio.create_task(_shutdown_event.wait(), name="shutdown_watchdog")
 
     try:

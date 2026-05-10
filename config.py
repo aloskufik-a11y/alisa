@@ -54,6 +54,8 @@ CHANNELS_TO_MONITOR: list[str] = (
 # Полный поллинг (все страницы) — низкая частота, чтобы не было 429.
 FRAGMENT_POLL_INTERVAL: int = _env_int("FRAGMENT_POLL_INTERVAL", 60)
 MRKT_POLL_INTERVAL: int = _env_int("MRKT_POLL_INTERVAL", 60)
+GETGEMS_POLL_INTERVAL: int = _env_int("GETGEMS_POLL_INTERVAL", 60)
+GETGEMS_API_KEY: str = _env_str("GETGEMS_API_KEY", "")
 
 # Fast-lane поллинг — только 1-я страница (где появляются новые лоты), очень частое.
 # Цель: latency «лот появился → алерт» ≤ FAST_POLL_INTERVAL/2 секунд (avg).

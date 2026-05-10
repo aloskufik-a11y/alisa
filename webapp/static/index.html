@@ -26,6 +26,7 @@
     --mrkt: #a06bff;
     --portals: #34c77c;
     --fragment: #4ea1ff;
+    --getgems: #ff7a59;
     --radius: 14px;
     --radius-lg: 18px;
     --shadow-card: 0 1px 0 rgba(0,0,0,.2);
@@ -187,6 +188,7 @@
   .pill.market-mrkt.active     { background: linear-gradient(135deg,#a06bff,#7d4fd1); color:#fff; box-shadow: 0 4px 12px rgba(160,107,255,.35); }
   .pill.market-portals.active  { background: linear-gradient(135deg,#34c77c,#1ea05f); color:#fff; box-shadow: 0 4px 12px rgba(52,199,124,.35); }
   .pill.market-fragment.active { background: linear-gradient(135deg,#4ea1ff,#1f6fd6); color:#fff; box-shadow: 0 4px 12px rgba(78,161,255,.35); }
+  .pill.market-getgems.active  { background: linear-gradient(135deg,#ff7a59,#d05b3e); color:#fff; box-shadow: 0 4px 12px rgba(255,122,89,.35); }
   .pill .dot {
     width: 6px; height: 6px; border-radius: 50%; background: var(--accent);
     margin-right: 2px;
@@ -194,6 +196,7 @@
   .pill.market-mrkt .dot { background: var(--mrkt); }
   .pill.market-portals .dot { background: var(--portals); }
   .pill.market-fragment .dot { background: var(--fragment); }
+  .pill.market-getgems .dot { background: var(--getgems); }
   .pill.active .dot { background: rgba(255,255,255,.85); }
   .pill .x { margin-left: 2px; opacity: .55; font-size: 14px; line-height: 1; }
 
@@ -339,6 +342,7 @@
   .badge.mrkt { background: rgba(160,107,255,.18); color: #c69cff; }
   .badge.portals { background: rgba(52,199,124,.18); color: #6ad9a0; }
   .badge.fragment { background: rgba(78,161,255,.18); color: #82b8ff; }
+  .badge.getgems { background: rgba(255,122,89,.18); color: #ffa68a; }
 
   /* Sticky info pane (sort) */
   .sort-row {
@@ -775,6 +779,7 @@
     <span class="pill market-mrkt" data-market="mrkt"><span class="market-dot" data-mkt-dot="mrkt"></span>MRKT</span>
     <span class="pill market-portals" data-market="portals"><span class="market-dot" data-mkt-dot="portals"></span>Portals</span>
     <span class="pill market-fragment" data-market="fragment"><span class="market-dot" data-mkt-dot="fragment"></span>Fragment</span>
+    <span class="pill market-getgems" data-market="getgems"><span class="market-dot" data-mkt-dot="getgems"></span>Getgems</span>
     <span class="pill" data-flag="favorites" data-i18n="filter_fav">⭐ Избранное</span>
     <span class="pill" data-flag="below_floor" data-i18n="filter_below_floor">⬇️ Ниже Floor</span>
     <span class="pill" data-flag="fresh_deals" data-i18n="filter_fresh_deals">🆕 Свежие скидки</span>

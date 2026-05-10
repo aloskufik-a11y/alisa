@@ -32,6 +32,8 @@ services:
         value: https://gift-monitor-mini-app.onrender.com
       - key: WEBAPP_BACKEND_KEY
         sync: false
+      - key: GETGEMS_API_KEY
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: LOG_LEVEL

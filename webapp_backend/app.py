@@ -91,6 +91,9 @@ _pushed_settings: dict = {}
 _portals_cache: dict = {"ts": 0, "items": [], "from_bot": False}
 _fragment_cache: dict = {"ts": 0, "items": [], "from_bot": False}
 _mrkt_cache: dict = {"ts": 0, "items": [], "from_bot": True}  # MRKT — только бот
+# Getgems — данные приходят из бота через push/push_batch. Backend не делает
+# собственный скрейп Getgems, чтобы не делить лимит 400 req / 5 min на IP.
+_getgems_cache: dict = {"ts": 0, "items": [], "from_bot": True}
 
 # Изменения настроек, ожидающие применения ботом (поллит /api/pending_settings)
 _pending_settings: dict = {"ts": 0, "settings": {}}
@@ -376,6 +379,8 @@ async def health():
         "fragment_cached": len(_fragment_cache["items"]),
         "fragment_from_bot": bool(_fragment_cache.get("from_bot")),
         "mrkt_cached": len(_mrkt_cache["items"]),
+        "getgems_cached": len(_getgems_cache["items"]),
+        "getgems_from_bot": bool(_getgems_cache.get("from_bot")),
         "pending_settings_ts": _pending_settings.get("ts", 0),
         "last_applied_ts": _last_applied_ts,
         "settings_known": bool(_pushed_settings),
@@ -392,6 +397,7 @@ async def markets_status():
         ("mrkt", _mrkt_cache),
         ("portals", _portals_cache),
         ("fragment", _fragment_cache),
+        ("getgems", _getgems_cache),
     ):
         ts = int(cache.get("ts", 0) or 0)
         out[name] = {
@@ -491,6 +497,7 @@ async def feed(market: str | None = None,
         items.extend(await fetch_portals())
         items.extend(await fetch_fragment())
         items.extend(list(_mrkt_cache["items"]))
+        items.extend(list(_getgems_cache["items"]))
     if source in ("pushed", "all"):
         items.extend(list(_pushed_feed))
 
@@ -640,6 +647,7 @@ async def push(request: Request, x_api_key: str = Header(default="")):
             "mrkt": _mrkt_cache,
             "portals": _portals_cache,
             "fragment": _fragment_cache,
+            "getgems": _getgems_cache,
         }.get(market_for_batch)
         if cache is not None:
             now = int(time.time())
@@ -800,7 +808,7 @@ def _record_floor_snapshot() -> None:
     _last_floor_record_ts = now
 
     by_name: dict[str, list[float]] = defaultdict(list)
-    for cache in (_portals_cache, _fragment_cache, _mrkt_cache):
+    for cache in (_portals_cache, _fragment_cache, _mrkt_cache, _getgems_cache):
         for it in cache.get("items", []) or []:
             nm = (it.get("name") or "").strip().lower()
             if not nm:
