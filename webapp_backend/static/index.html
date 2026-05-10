@@ -777,6 +777,7 @@
     <span class="pill market-fragment" data-market="fragment"><span class="market-dot" data-mkt-dot="fragment"></span>Fragment</span>
     <span class="pill" data-flag="favorites" data-i18n="filter_fav">⭐ Избранное</span>
     <span class="pill" data-flag="below_floor" data-i18n="filter_below_floor">⬇️ Ниже Floor</span>
+    <span class="pill" data-flag="fresh_deals" data-i18n="filter_fresh_deals">🆕 Свежие скидки</span>
     <span class="pill" data-flag="new" data-i18n="filter_new">✨ Новые 5 мин</span>
     <span class="pill" data-flag="rare5" data-i18n="filter_rare5">💠 Ультра-редкие</span>
     <span class="pill" data-flag="lucky777">🍀 #777</span>
@@ -885,6 +886,7 @@ const I18N = {
     sort_ts: '⏱ Свежие', sort_discount: '💰 Скидка %',
     sort_price_asc: '⬆ Цена', sort_price_desc: '⬇ Цена', sort_rarity: '💠 Редкость',
     filter_all: 'Все', filter_fav: '⭐ Избранное', filter_below_floor: '⬇️ Ниже Floor',
+    filter_fresh_deals: '🆕 Свежие скидки',
     filter_new: '✨ Новые 5 мин', filter_rare5: '💠 Ультра-редкие',
     filter_round: '⭕ Круглые', filter_palindrome: '🔄 Палиндром',
     filter_repeat: '🔁 Повтор', filter_mono: '🎨 Монохром',
@@ -973,6 +975,7 @@ const I18N = {
     sort_ts: '⏱ Fresh', sort_discount: '💰 Discount %',
     sort_price_asc: '⬆ Price', sort_price_desc: '⬇ Price', sort_rarity: '💠 Rarity',
     filter_all: 'All', filter_fav: '⭐ Favorites', filter_below_floor: '⬇️ Below floor',
+    filter_fresh_deals: '🆕 Fresh deals',
     filter_new: '✨ New 5 min', filter_rare5: '💠 Ultra-rare',
     filter_round: '⭕ Round', filter_palindrome: '🔄 Palindrome',
     filter_repeat: '🔁 Repeats', filter_mono: '🎨 Mono',
@@ -1345,6 +1348,13 @@ function applyFilters() {
     if (flags.has('favorites') && !favs.has(favKey(it))) return false;
     if (flags.has('below_floor') && discountPct(it) <= 0) return false;
     if (flags.has('discount10') && discountPct(it) < 10) return false;
+    // 🆕 «Свежие скидки» = ниже floor И моложе 15 мин (или впервые увидели в этот рефреш).
+    if (flags.has('fresh_deals')) {
+      if (discountPct(it) <= 0) return false;
+      const isNew = state.newIds.has(it.id);
+      const fresh = it.ts && (nowTs - it.ts) <= 900;
+      if (!isNew && !fresh) return false;
+    }
     if (flags.has('rare5')) {
       const m = minPm(it);
       if (!m || m > 5) return false;
@@ -1598,16 +1608,36 @@ function card(it) {
   priceRow.innerHTML = `<span class="price">${fmtPrice(it.price)} 💎</span>`;
   const floor = it.floor_price ?? it.xfloor;
   if (floor && floor !== it.price) {
-    priceRow.innerHTML += `<span class="floor">из ${fmtPrice(floor)}</span>`;
-  }
-  if (dp >= 1) {
-    priceRow.innerHTML += `<span class="badge good">−${dp.toFixed(1)}%</span>`;
+    if (floor > it.price) {
+      // Дисконт: показываем floor зачёркнутым + бейдж экономии
+      priceRow.innerHTML +=
+        `<span class="price-sm">${fmtPrice(floor)}</span>`;
+      if (dp >= 1) {
+        priceRow.innerHTML += `<span class="badge good">−${dp.toFixed(1)}%</span>`;
+      }
+    } else {
+      // Цена выше floor — показываем «floor X.XX» подсказкой
+      const overPct = ((it.price - floor) / floor) * 100;
+      priceRow.innerHTML +=
+        `<span class="floor">floor ${fmtPrice(floor)}</span>`;
+      if (overPct >= 1) {
+        priceRow.innerHTML +=
+          `<span class="badge bad" title="Выше флора">+${overPct.toFixed(1)}%</span>`;
+      }
+    }
   }
   info.appendChild(priceRow);
 
   const badges = document.createElement('div');
   badges.className = 'badges';
   badges.innerHTML = `<span class="badge ${it.market}">${(it.market || '?').toUpperCase()}</span>`;
+  // 🆕 Свежий лот: ts ≤ 15 мин назад. На Portals ts реальное время listing'а,
+  // на остальных — fallback на момент скрейпа, поэтому полезно только если
+  // листинг очень свежий.
+  const ageSec = it.ts ? (Date.now() / 1000 - it.ts) : null;
+  if (ageSec !== null && ageSec >= 0 && ageSec <= 900) {
+    badges.innerHTML += `<span class="badge good">🆕</span>`;
+  }
   const cats = numberCategories(it.number);
   for (const c of cats.slice(0, 2)) {
     badges.innerHTML += `<span class="badge">${c.icon} ${c.label}</span>`;
