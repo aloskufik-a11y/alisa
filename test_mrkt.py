@@ -935,6 +935,15 @@ try:
     with_settings(filter_collections=["Other"])
     test("filter_collections: Test не в списке → не выгодно", not is_profitable(gift_low_num))
 
+    # Regression: case-insensitive сравнение, чтобы маркеты с разной нормализацией
+    # имени коллекции («plush pepe» vs «Plush Pepe») не пролетали мимо фильтра.
+    with_settings(filter_collections=["test"])
+    test("filter_collections: lowercase 'test' в списке матчит 'Test' (case-insens)",
+         is_profitable(gift_low_num))
+    with_settings(filter_collections=["TEST  "])
+    test("filter_collections: 'TEST' с пробелами в списке матчит 'Test'",
+         is_profitable(gift_low_num))
+
     # max_rarity_pm — symbol=0.8 ≤ 1
     with_settings(max_rarity_pm=1.0)
     test("max_rarity_pm: symbol 0.8 ≤ 1 → выгодно", is_profitable(gift_low_num))
