@@ -249,12 +249,30 @@
 
   main { padding: 8px 12px 28px; display: flex; flex-direction: column; gap: 8px; }
   .empty {
-    text-align: center; padding: 80px 24px; color: var(--fg-dim);
+    text-align: center; padding: 64px 24px 80px; color: var(--fg-dim);
     display: flex; flex-direction: column; align-items: center; gap: 8px;
   }
-  .empty .e-emoji { font-size: 56px; margin-bottom: 4px; }
-  .empty .e-title { font-size: 16px; font-weight: 600; color: var(--fg); }
-  .empty .e-sub { font-size: 13px; max-width: 280px; }
+  .empty .e-emoji {
+    font-size: 56px; margin-bottom: 4px;
+    animation: e-bounce 2.4s ease-in-out infinite;
+  }
+  @keyframes e-bounce {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+  }
+  .empty .e-title { font-size: 16px; font-weight: 600; color: var(--fg); letter-spacing: -.01em; }
+  .empty .e-sub { font-size: 13px; max-width: 280px; line-height: 1.45; }
+  .empty-cta {
+    margin-top: 12px; padding: 10px 18px;
+    background: var(--accent); color: #fff;
+    border: none; border-radius: 12px;
+    font-size: 14px; font-weight: 600;
+    cursor: pointer;
+    transition: transform .08s ease, opacity .15s ease;
+    -webkit-tap-highlight-color: transparent;
+    min-height: 40px;
+  }
+  .empty-cta:active { transform: scale(.97); opacity: .85; }
 
   /* Cards */
   .card {
@@ -801,9 +819,10 @@
   </div>
   <div id="cards" style="display:flex; flex-direction:column; gap:8px;"></div>
   <div class="empty" id="empty-state" style="display:none;">
-    <div class="e-emoji">📭</div>
-    <div class="e-title" data-i18n="empty_title">Лента пуста</div>
-    <div class="e-sub" data-i18n="empty_sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
+    <div class="e-emoji" id="empty-emoji">📭</div>
+    <div class="e-title" id="empty-title" data-i18n="empty_title">Лента пуста</div>
+    <div class="e-sub" id="empty-sub" data-i18n="empty_sub">Подождите следующий цикл опроса или ослабьте фильтры.</div>
+    <button id="empty-cta" class="empty-cta" style="display:none;" onclick="clearAllFilters()" data-i18n="empty_clear_filters">Сбросить фильтры</button>
   </div>
 </main>
 
@@ -875,6 +894,9 @@ const I18N = {
     clear_all: 'Очистить ×', hot_deals: 'Топ-предложения',
     empty_title: 'Лента пуста',
     empty_sub: 'Подождите следующий цикл опроса или ослабьте фильтры.',
+    empty_filtered_title: 'Ничего не нашлось',
+    empty_filtered_sub: 'В ленте {n} лотов, но они отсеяны вашими фильтрами.',
+    empty_clear_filters: 'Сбросить фильтры',
     loading: 'Загрузка…', save_btn: 'Сохранить изменения',
     of_lots: 'лотов', updated: 'обновлено', ago: 'назад',
     via_backend: 'через backend', fallback: 'fallback (только Portals)',
@@ -960,6 +982,9 @@ const I18N = {
     clear_all: 'Clear ×', hot_deals: 'Hot deals',
     empty_title: 'Feed is empty',
     empty_sub: 'Wait for the next poll cycle or relax the filters.',
+    empty_filtered_title: 'Nothing matched',
+    empty_filtered_sub: 'There are {n} lots in feed, but your filters hide them all.',
+    empty_clear_filters: 'Clear filters',
     loading: 'Loading…', save_btn: 'Save changes',
     of_lots: 'lots', updated: 'updated', ago: 'ago',
     via_backend: 'via backend', fallback: 'fallback (Portals only)',
@@ -1434,6 +1459,27 @@ function renderFeed() {
   if (!cnt) {
     m.style.display = 'none';
     empty.style.display = '';
+    // Smart empty: differentiate "feed is truly empty" vs "filters are too tight".
+    const filtersActive = state.items.length > 0;
+    const emoji = $('#empty-emoji');
+    const title = $('#empty-title');
+    const sub = $('#empty-sub');
+    const cta = $('#empty-cta');
+    if (filtersActive) {
+      if (emoji) emoji.textContent = '🔍';
+      if (title) title.textContent = t('empty_filtered_title');
+      if (sub) sub.textContent = t('empty_filtered_sub')
+        .replace('{n}', String(state.items.length));
+      if (cta) {
+        cta.style.display = '';
+        cta.textContent = t('empty_clear_filters');
+      }
+    } else {
+      if (emoji) emoji.textContent = '📭';
+      if (title) title.textContent = t('empty_title');
+      if (sub) sub.textContent = t('empty_sub');
+      if (cta) cta.style.display = 'none';
+    }
     return;
   }
   m.style.display = '';
