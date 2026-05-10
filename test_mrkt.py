@@ -1294,6 +1294,72 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+print("\n[19] getgems_scraper._normalize_item — нормализация лотов с api.getgems.io")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    from getgems_scraper import _normalize_item
+
+    base = {
+        "address": "EQf_tg_gift_______________________9WLvayAALYzK2m",
+        "kind": "OffchainNft",
+        "collectionAddress": "EQDc08YxzZWtlKAohSybNc3kXAkAPPtHch-jY_E6KMQ3b1mn",
+        "name": "Vice Cream #186572",
+        "image": "https://i.getgems.io/abc.png",
+        "imageSizes": {"352": "https://i.getgems.io/abc-352.png"},
+        "attributes": [
+            {"traitType": "Model", "value": "Choco Cone", "rarityPercent": "2"},
+            {"traitType": "Backdrop", "value": "French Blue", "rarityPercent": "1.5"},
+            {"traitType": "Symbol", "value": "Bamboo", "rarityPercent": "0.4"},
+        ],
+        "sale": {
+            "type": "FixPriceSale",
+            "fullPrice": "1579000000",
+            "currency": "TON",
+        },
+    }
+    item = _normalize_item(base)
+    test("getgems: name парсится в коллекция+номер",
+         item is not None and item["name"] == "Vice Cream" and item["number"] == 186572)
+    test("getgems: цена в TON (1.579, не nano)",
+         item is not None and abs(item["price"] - 1.579) < 1e-6)
+    test("getgems: модель/бэкдроп/символ корректно",
+         item["model_name"] == "Choco Cone"
+         and item["backdrop_name"] == "French Blue"
+         and item["symbol_name"] == "Bamboo")
+    test("getgems: rarities_pm в промилле (×10 от %)",
+         item["rarities_pm"]["model"] == 20.0
+         and item["rarities_pm"]["backdrop"] == 15.0
+         and abs(item["rarities_pm"]["symbol"] - 4.0) < 1e-6)
+    test("getgems: market='getgems'", item["market"] == "getgems")
+    test("getgems: url ведёт на коллекцию для offchain",
+         "getgems.io/collection/" in (item.get("url") or ""))
+
+    # USDT — пропускаем (Stars/USDT/auction → None)
+    usdt = dict(base)
+    usdt["sale"] = {**base["sale"], "currency": "USDT"}
+    test("getgems: USDT-лоты пропускаются (None)", _normalize_item(usdt) is None)
+
+    auction = dict(base)
+    auction["sale"] = {**base["sale"], "type": "Auction"}
+    test("getgems: Auction-лоты пропускаются (None)", _normalize_item(auction) is None)
+
+    # Цена 0 / отсутствует — пропускаем
+    zero = dict(base)
+    zero["sale"] = {**base["sale"], "fullPrice": "0"}
+    test("getgems: 0-цена → None", _normalize_item(zero) is None)
+
+    # Нет # в имени — number=None, name = всё имя
+    no_num = dict(base, name="Plush Pepe")
+    item2 = _normalize_item(no_num)
+    test("getgems: name без # → number=None, name=полный",
+         item2 is not None and item2["number"] is None and item2["name"] == "Plush Pepe")
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 print("\n" + "=" * 60)
 print(f"Результат: ✅ {PASS} прошло  ❌ {FAIL} провалилось")
 print("=" * 60)

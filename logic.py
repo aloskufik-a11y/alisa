@@ -906,7 +906,7 @@ _MARKET_ALIASES: dict[str, str] = {
     "main_mrkt_bot": "mrkt",
     "fragment":      "fragment",
     "portals":       "portals",
-    "getgems":       "portals",
+    "getgems":       "getgems",
 }
 
 

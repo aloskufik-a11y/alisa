@@ -1264,7 +1264,8 @@ async def send_gift_alert(bot_instance: Bot, chat_id: int, gift: dict, market: s
     market_icons = {
         "mrkt": "🟣 MRKT", "main_mrkt_bot": "🟣 MRKT",
         "fragment": "🔵 Fragment",
-        "portals": "🟢 Portals", "getgems": "🟢 Portals",
+        "portals": "🟢 Portals",
+        "getgems": "💎 Getgems",
     }
     market_icon = market_icons.get(market, market)
 

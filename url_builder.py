@@ -246,11 +246,20 @@ def build_market_buttons(
             col_link = build_fragment_collection_link(name)
             buttons.append({"text": "📋 Все лоты коллекции", "url": col_link})
 
-    elif market in ("portals", "getgems"):
+    elif market == "portals":
         # Родной Mini App Portals (полный share-формат с gift_{UUID})
         portals_link = build_portals_gift_link(slug=slug, gift_id=gift_id)
         buttons.append({"text": "🟢 Открыть в Portals", "url": portals_link})
         # Дополнительная — t.me/nft при наличии name+number (нативный TG-просмотр)
+        nft_link = build_telegram_nft_link(name, number)
+        if nft_link:
+            buttons.append({"text": "🎁 Telegram NFT", "url": nft_link})
+
+    elif market == "getgems":
+        # Getgems offchain-гифт. address передаётся как gift_id, slug — это
+        # collectionAddress.
+        getgems_link = build_getgems_gift_link(gift_id, slug)
+        buttons.append({"text": "💎 Открыть в Getgems", "url": getgems_link})
         nft_link = build_telegram_nft_link(name, number)
         if nft_link:
             buttons.append({"text": "🎁 Telegram NFT", "url": nft_link})
