@@ -919,6 +919,14 @@ try:
     with_settings(monochrome_only=True)
     test("monochrome_only: синий backdrop → выгодно", is_profitable(gift_low_num))
     test("monochrome_only: радуга → не выгодно", not is_profitable(gift_no_color))
+    # Regression: лоты без RGB-данных (Fragment HTML, Portals GraphQL) не должны
+    # пропадать из выдачи когда монохром-фильтр включён.
+    gift_no_colors_field = dict(gift_low_num); gift_no_colors_field["colors"] = []
+    test("monochrome_only: нет данных о цвете → fail-open (выгодно)",
+         is_profitable(gift_no_colors_field))
+    gift_one_color = dict(gift_low_num); gift_one_color["colors"] = [0x336699]
+    test("monochrome_only: один цвет (недостаточно для проверки) → fail-open",
+         is_profitable(gift_one_color))
 
     # filter_collections
     with_settings(filter_collections=["Test"])
