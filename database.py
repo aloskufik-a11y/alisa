@@ -39,6 +39,31 @@ def init_db():
             CREATE INDEX IF NOT EXISTS idx_gifts_source
             ON gifts (source)
         """)
+        # Таблица для daily digest: храним каждый успешный алерт с floor_price
+        # и другими метаданными, чтобы строить топы по скидке/коллекции/маркету.
+        # Отделена от gifts (которая просто dedup-кэш) для производительности.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerts_log (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                market       TEXT NOT NULL,
+                gift_id      TEXT NOT NULL,
+                name         TEXT NOT NULL,
+                number       TEXT,
+                price        REAL NOT NULL,
+                floor_price  REAL,
+                discount_pct REAL,
+                model_name   TEXT,
+                backdrop_name TEXT,
+                rarity       TEXT,
+                timestamp    DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_alerts_log_ts ON alerts_log (timestamp)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_alerts_log_market ON alerts_log (market)"
+        )
         conn.commit()
 
     # Удаляем записи старше 14 дней при каждом старте
@@ -65,6 +90,30 @@ def add_gift(gift_id: str, name: str, price: float, source: str) -> bool:
         return cursor.rowcount > 0
 
 
+def add_gifts_bulk(rows: list[tuple[str, str, float, str]]) -> int:
+    """Атомарно добавляет N записей в один транзакционный коммит.
+
+    rows: список кортежей (gift_id, name, price, source).
+    Возвращает количество вставленных строк (тех, которых не было).
+
+    Один commit на всю партию = ~10x быстрее чем N add_gift в цикле,
+    так как WAL-fsync дорогой. Используется на fast-lane чтобы не задерживать
+    отправку алертов на сериализацию sqlite.
+    """
+    if not rows:
+        return 0
+    with _get_conn() as conn:
+        cursor = conn.executemany(
+            "INSERT OR IGNORE INTO gifts (id, name, price, source) VALUES (?, ?, ?, ?)",
+            rows,
+        )
+        conn.commit()
+        # rowcount у executemany не всегда корректен (sqlite ≤3.32 возвращает -1),
+        # но для INSERT OR IGNORE на свежих версиях возвращает сумму. Если -1,
+        # консервативно вернём len(rows) (worst case = «все вставились»).
+        return cursor.rowcount if cursor.rowcount >= 0 else len(rows)
+
+
 def cleanup_old_gifts(days: int = 14) -> int:
     """Удаляет записи старше N дней. Возвращает количество удалённых."""
     with _get_conn() as conn:
@@ -74,6 +123,115 @@ def cleanup_old_gifts(days: int = 14) -> int:
         )
         conn.commit()
         return cursor.rowcount
+
+
+def log_alert(market: str, gift: dict) -> None:
+    """Записывает успешно отправленный алерт в alerts_log для daily digest.
+
+    Никогда не падает — все ошибки логируются и проглатываются. Это вспомогательная
+    запись, она не должна блокировать отправку самого алерта.
+    """
+    try:
+        floor = gift.get("floor_price")
+        price = gift.get("price")
+        discount_pct = None
+        if floor and price and floor > 0:
+            discount_pct = round((float(floor) - float(price)) / float(floor) * 100, 2)
+
+        rarity_obj = gift.get("rarities_pm") or {}
+        if isinstance(rarity_obj, dict):
+            rarity_str = ",".join(
+                f"{k}:{v}" for k, v in rarity_obj.items() if v is not None
+            )
+        else:
+            rarity_str = str(rarity_obj)[:64]
+
+        with _get_conn() as conn:
+            conn.execute(
+                """
+                INSERT INTO alerts_log
+                  (market, gift_id, name, number, price, floor_price,
+                   discount_pct, model_name, backdrop_name, rarity)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    market,
+                    str(gift.get("id", "")),
+                    str(gift.get("name", "")),
+                    str(gift.get("number") or ""),
+                    float(price or 0),
+                    float(floor) if floor else None,
+                    discount_pct,
+                    str(gift.get("model_name") or "") or None,
+                    str(gift.get("backdrop_name") or "") or None,
+                    rarity_str or None,
+                ),
+            )
+            conn.commit()
+    except Exception:
+        logger.exception("log_alert: не удалось записать алерт в БД")
+
+
+def fetch_alerts_window(hours: int = 24) -> list[dict]:
+    """Возвращает все алерты за последние N часов как list[dict].
+    Используется daily_digest.compute_digest().
+    """
+    with _get_conn() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT market, gift_id, name, number, price, floor_price,
+                   discount_pct, model_name, backdrop_name, rarity, timestamp
+              FROM alerts_log
+             WHERE timestamp >= datetime('now', ?)
+             ORDER BY timestamp DESC
+            """,
+            (f"-{int(hours)} hours",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def collection_history(name: str, hours: int = 24) -> dict:
+    """Агрегированная статистика по коллекции за последние N часов.
+    Используется AI-вердиктом чтобы дать модели контекст «было ли что-то
+    дешевле у этой коллекции за последние сутки».
+
+    Возвращает {} если нет данных или ошибка.
+    """
+    if not name:
+        return {}
+    try:
+        with _get_conn() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt,
+                       MIN(price)       AS min_price,
+                       AVG(price)       AS avg_price,
+                       MIN(floor_price) AS min_floor,
+                       AVG(floor_price) AS avg_floor,
+                       MAX(discount_pct) AS best_discount_pct,
+                       AVG(discount_pct) AS avg_discount_pct
+                  FROM alerts_log
+                 WHERE LOWER(name) = LOWER(?)
+                   AND timestamp >= datetime('now', ?)
+                """,
+                (name.strip(), f"-{int(hours)} hours"),
+            ).fetchone()
+        if not row or not row[0]:
+            return {}
+        cnt, min_p, avg_p, min_f, avg_f, best_d, avg_d = row
+        return {
+            "alerts_count": int(cnt),
+            "min_price": round(float(min_p), 2) if min_p is not None else None,
+            "avg_price": round(float(avg_p), 2) if avg_p is not None else None,
+            "min_floor": round(float(min_f), 2) if min_f is not None else None,
+            "avg_floor": round(float(avg_f), 2) if avg_f is not None else None,
+            "best_discount_pct": round(float(best_d), 1) if best_d is not None else None,
+            "avg_discount_pct": round(float(avg_d), 1) if avg_d is not None else None,
+            "window_hours": int(hours),
+        }
+    except Exception:
+        return {}
 
 
 def get_stats() -> dict:

@@ -7,28 +7,36 @@
   • MRKT — пушит сам бот через `POST /api/push` (X-API-Key)
 
 Эндпоинты:
-  GET  /                     — SPA (index.html)
-  GET  /static/{path}        — статика
-  GET  /api/feed             — aggregate feed
-  GET  /api/health           — статус
-  GET  /api/settings         — read-only snapshot of bot settings
-                               (если бот не пушил, отдаёт дефолты)
-  POST /api/push             — приём событий от бота (требует X-API-Key)
+  GET  /                       — SPA (index.html)
+  GET  /static/{path}          — статика
+  GET  /api/feed               — aggregate feed (TON-цены)
+  GET  /api/health             — статус
+  GET  /api/markets            — статус каждого маркета (count, age_sec)
+  GET  /api/floor-history      — история floor по имени коллекции
+  GET  /api/settings           — read-only snapshot of bot settings
+                                 (если бот не пушил, отдаёт дефолты)
+  POST /api/settings           — Mini App шлёт diff настроек (бот поллит)
+  POST /api/push               — приём событий от бота (требует X-API-Key)
+  POST /api/test-alert         — Mini App просит бота прислать тестовое уведомление
+  GET  /api/pending_settings   — бот поллит pending diff (требует X-API-Key)
+  GET  /api/pending_test_alert — бот поллит запрос на тестовый алерт
 """
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
 import time
-from collections import deque
+from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Deque
 
 import httpx
 from bs4 import BeautifulSoup
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -40,14 +48,39 @@ API_KEY = os.getenv("PUSH_API_KEY", "").strip()
 PORTALS_TTL = 30
 FRAGMENT_TTL = 60
 MAX_FEED = 1000
+FLOOR_HISTORY_MAX = 240          # ~4 часа при шаге в 60 сек
+FLOOR_HISTORY_INTERVAL = 60      # сек между точками
 
 app = FastAPI(title="Gift Monitor Web App")
+
+# CORS — Mini App открыт из tg origin'а; внешние страницы (например Telegram
+# Web K/A) тоже должны спокойно дёргать /api/feed. Никаких креденшалов в
+# запросах нет, поэтому wildcard безопасен.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+)
 
 STATIC_DIR = Path(__file__).parent / "static"
 STATIC_DIR.mkdir(exist_ok=True)
 
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+# Persistent state directory: /data на Fly.io если есть mount, иначе рядом.
+DATA_DIR = Path(os.getenv("BACKEND_DATA_DIR", "") or "/data")
+if not DATA_DIR.exists() or not os.access(DATA_DIR, os.W_OK):
+    DATA_DIR = Path(__file__).parent / ".state"
+try:
+    DATA_DIR.mkdir(exist_ok=True, parents=True)
+except Exception:
+    DATA_DIR = Path(__file__).parent
+PENDING_FILE = DATA_DIR / "pending_settings.json"
+PUSHED_SETTINGS_FILE = DATA_DIR / "pushed_settings.json"
+FLOOR_HISTORY_FILE = DATA_DIR / "floor_history.json"
 
 # ─── В памяти ──────────────────────────────────────────────────────────────
 _pushed_feed: Deque[dict] = deque(maxlen=MAX_FEED)
@@ -62,6 +95,88 @@ _mrkt_cache: dict = {"ts": 0, "items": [], "from_bot": True}  # MRKT — тол�
 # Изменения настроек, ожидающие применения ботом (поллит /api/pending_settings)
 _pending_settings: dict = {"ts": 0, "settings": {}}
 _last_applied_ts: int = 0
+
+# История floor по имени коллекции: name -> deque[(ts, floor_ton)]
+_floor_history: dict[str, Deque[tuple[int, float]]] = defaultdict(
+    lambda: deque(maxlen=FLOOR_HISTORY_MAX)
+)
+_last_floor_record_ts: float = 0.0
+
+
+def _safe_load_json(path: Path) -> Any:
+    try:
+        if path.exists():
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        logger.exception(f"failed to load {path}")
+    return None
+
+
+def _safe_save_json(path: Path, data: Any) -> None:
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+        tmp.replace(path)
+    except Exception:
+        logger.exception(f"failed to save {path}")
+
+
+def _load_persisted_state() -> None:
+    global _last_applied_ts
+    p = _safe_load_json(PENDING_FILE)
+    if isinstance(p, dict):
+        _pending_settings["ts"] = int(p.get("ts", 0) or 0)
+        s = p.get("settings")
+        _pending_settings["settings"] = s if isinstance(s, dict) else {}
+        _last_applied_ts = int(p.get("last_applied_ts", 0) or 0)
+        if _pending_settings["settings"]:
+            logger.info(
+                "Loaded %s pending settings keys from disk",
+                len(_pending_settings["settings"]),
+            )
+    s = _safe_load_json(PUSHED_SETTINGS_FILE)
+    if isinstance(s, dict):
+        _pushed_settings.update(s)
+    h = _safe_load_json(FLOOR_HISTORY_FILE)
+    if isinstance(h, dict):
+        for name, points in h.items():
+            if isinstance(points, list):
+                dq = _floor_history[name]
+                for p in points[-FLOOR_HISTORY_MAX:]:
+                    if isinstance(p, list) and len(p) == 2:
+                        try:
+                            dq.append((int(p[0]), float(p[1])))
+                        except (TypeError, ValueError):
+                            continue
+
+
+def _persist_pending() -> None:
+    _safe_save_json(
+        PENDING_FILE,
+        {
+            "ts": _pending_settings.get("ts", 0),
+            "settings": _pending_settings.get("settings", {}),
+            "last_applied_ts": _last_applied_ts,
+        },
+    )
+
+
+def _persist_pushed_settings() -> None:
+    _safe_save_json(PUSHED_SETTINGS_FILE, _pushed_settings)
+
+
+def _persist_floor_history() -> None:
+    snap = {
+        name: [list(p) for p in points]
+        for name, points in _floor_history.items()
+        if points
+    }
+    _safe_save_json(FLOOR_HISTORY_FILE, snap)
+
+
+_load_persisted_state()
 
 
 # ─── Periodic scrapers (Portals + Fragment, no auth) ──────────────────────
@@ -251,6 +366,51 @@ async def health():
         "pending_settings_ts": _pending_settings.get("ts", 0),
         "last_applied_ts": _last_applied_ts,
         "settings_known": bool(_pushed_settings),
+        "data_dir": str(DATA_DIR),
+    }
+
+
+@app.get("/api/markets")
+async def markets_status():
+    """Per-market status для live-индикаторов в UI."""
+    now = int(time.time())
+    out = {}
+    for name, cache in (
+        ("mrkt", _mrkt_cache),
+        ("portals", _portals_cache),
+        ("fragment", _fragment_cache),
+    ):
+        ts = int(cache.get("ts", 0) or 0)
+        out[name] = {
+            "count": len(cache.get("items", [])),
+            "ts": ts,
+            "age_sec": (now - ts) if ts else None,
+            "from_bot": bool(cache.get("from_bot")),
+        }
+    return {"ok": True, "now": now, "markets": out}
+
+
+@app.get("/api/floor-history")
+async def floor_history(name: str = "", limit: int = 120):
+    """
+    История floor по имени коллекции.
+    Без параметра `name` — список имён, по которым есть история.
+    limit ограничен сверху FLOOR_HISTORY_MAX.
+    """
+    limit = max(1, min(int(limit or 120), FLOOR_HISTORY_MAX))
+    key = (name or "").strip().lower()
+    if not key:
+        return {
+            "ok": True,
+            "names": sorted(_floor_history.keys()),
+            "interval": FLOOR_HISTORY_INTERVAL,
+        }
+    points = list(_floor_history.get(key) or ())[-limit:]
+    return {
+        "ok": True,
+        "name": key,
+        "interval": FLOOR_HISTORY_INTERVAL,
+        "points": [{"ts": ts, "floor": fv} for ts, fv in points],
     }
 
 
@@ -264,6 +424,8 @@ _DEFAULT_SETTINGS = {
     "max_price_ton": 50.0,
     "min_price_ton": 0.0,
     "floor_tolerance_pct": 0.0,
+    "strict_below_floor": True,
+    "min_savings_ton": 0.0,
     "min_discount_pct": 0,
     "require_floor": True,
     "filter_rarity": [],
@@ -287,6 +449,22 @@ _DEFAULT_SETTINGS = {
     "floor_drop_alert": False,
     "floor_drop_pct": 5.0,
     "mini_app_url": "",
+    "daily_digest_enabled": True,
+    "daily_digest_hour_utc": 6,
+    "daily_digest_window_hours": 24,
+    "last_digest_date": "",
+    "rare_priority_enabled": True,
+    "rare_priority_pm": 5.0,
+    "ai_provider": "off",
+    "groq_api_key": "",
+    "groq_model": "llama-3.3-70b-versatile",
+    "gemini_api_key": "",
+    "gemini_model": "gemini-2.0-flash",
+    "ai_for_alerts": False,
+    "ai_for_digest": True,
+    "ai_alerts_min_discount_pct": 10.0,
+    "ai_persona": "balanced",
+    "ai_custom_prompt": "",
 }
 
 
@@ -314,33 +492,50 @@ async def feed(market: str | None = None,
             seen[key] = it
     out = list(seen.values())
 
-    # Cross-market floor: берём min из всех маркетов по имени коллекции.
-    floors_by_name: dict[str, float] = {}
+    # Cross-market floor: берём min из всех лотов по имени коллекции.
+    # Но если по имени всего один лот — floor не равен его же цене (иначе
+    # в UI покажется 0% скидки для любого экземпляра).
+    items_by_name: dict[str, list[dict]] = defaultdict(list)
     for it in out:
         nm = (it.get("name") or "").strip().lower()
-        if not nm:
-            continue
-        for v in (it.get("floor_price"), it.get("price")):
-            if v is None:
-                continue
-            try:
-                fv = float(v)
-            except (TypeError, ValueError):
-                continue
-            if fv <= 0:
-                continue
-            cur = floors_by_name.get(nm)
-            if cur is None or fv < cur:
-                floors_by_name[nm] = fv
+        if nm:
+            items_by_name[nm].append(it)
+
+    floors_by_name: dict[str, float] = {}
+    for nm, group in items_by_name.items():
+        prices: list[float] = []
+        for it in group:
+            for v in (it.get("floor_price"), it.get("price")):
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if fv > 0:
+                    prices.append(fv)
+        if prices:
+            floors_by_name[nm] = min(prices)
+
     # Проставляем xfloor всем.
     for it in out:
         nm = (it.get("name") or "").strip().lower()
         xf = floors_by_name.get(nm)
         if xf is not None:
             it["xfloor"] = round(xf, 4)
-            # Если оригинальный floor пуст или равен цене лота — подставим xfloor
+            # Если оригинальный floor пуст и по этому имени есть хотя бы 2 лота
+            # — подставим xfloor. Если лот единственный — оставляем пустым (чтобы
+            # не показывать фиктивную скидку 0% / "floor = price").
             f = it.get("floor_price")
-            if not f or (it.get("price") and abs(f - it["price"]) < 0.001):
+            single = len(items_by_name[nm]) <= 1
+            if not f and not single:
+                it["floor_price"] = it["xfloor"]
+            elif (
+                f
+                and it.get("price")
+                and abs(f - it["price"]) < 0.001
+                and not single
+            ):
                 it["floor_price"] = it["xfloor"]
 
     out.sort(key=lambda x: x.get("ts", 0), reverse=True)
@@ -405,11 +600,17 @@ async def push(request: Request, x_api_key: str = Header(default="")):
     if isinstance(settings_payload, dict):
         _pushed_settings.clear()
         _pushed_settings.update(settings_payload)
+        _persist_pushed_settings()
+        logger.info(
+            "settings snapshot from bot (%s keys)",
+            len(settings_payload),
+        )
         # Отметим, что бот применил настройки — подтверждаем, что pending было подхвачено.
         pending_ts = body.get("applied_ts") or _pending_settings.get("ts", 0)
         if pending_ts and pending_ts <= _pending_settings.get("ts", 0):
             global _last_applied_ts
             _last_applied_ts = int(pending_ts)
+            _persist_pending()
 
     pushed_cnt = 0
     for it in items:
@@ -492,10 +693,12 @@ async def update_settings(request: Request):
     cur.update(cleaned)
     _pending_settings["settings"] = cur
     _pending_settings["ts"] = int(time.time())
+    _persist_pending()
 
     # Оптимистично сразу обновляем показываемый snapshot, чтобы UI отображал новые значения.
     if _pushed_settings:
         _pushed_settings.update(cleaned)
+        _persist_pushed_settings()
 
     # Расходимся на peer machines, если это первичный POST.
     broadcast_cnt = 0
@@ -560,10 +763,53 @@ async def warm_up():
 
 
 async def _periodic():
+    last_floor_persist = 0.0
     while True:
         try:
             await fetch_portals()
             await fetch_fragment()
+            _record_floor_snapshot()
+            now = time.time()
+            if now - last_floor_persist > 300:
+                _persist_floor_history()
+                last_floor_persist = now
         except Exception:
             logger.exception("periodic")
         await asyncio.sleep(45)
+
+
+def _record_floor_snapshot() -> None:
+    """Раз в FLOOR_HISTORY_INTERVAL сек записываем floor по каждой коллекции."""
+    global _last_floor_record_ts
+    now = time.time()
+    if now - _last_floor_record_ts < FLOOR_HISTORY_INTERVAL:
+        return
+    _last_floor_record_ts = now
+
+    by_name: dict[str, list[float]] = defaultdict(list)
+    for cache in (_portals_cache, _fragment_cache, _mrkt_cache):
+        for it in cache.get("items", []) or []:
+            nm = (it.get("name") or "").strip().lower()
+            if not nm:
+                continue
+            for v in (it.get("floor_price"), it.get("price")):
+                if v is None:
+                    continue
+                try:
+                    fv = float(v)
+                except (TypeError, ValueError):
+                    continue
+                if fv > 0:
+                    by_name[nm].append(fv)
+
+    ts = int(now)
+    for nm, prices in by_name.items():
+        if len(prices) < 2:
+            # При одном лоте floor неотличим от его же цены — не пишем.
+            continue
+        floor = min(prices)
+        dq = _floor_history[nm]
+        # Дедуп: если последняя точка совпадает по floor — продлеваем интервал.
+        if dq and abs(dq[-1][1] - floor) < 0.001:
+            continue
+        dq.append((ts, round(floor, 4)))

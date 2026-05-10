@@ -338,21 +338,28 @@ try:
     from logic import is_profitable
     import settings_store
 
-    # Сбрасываем настройки на дефолтные для воспроизводимости
+    # Сбрасываем настройки на дефолтные для воспроизводимости.
+    # rare_priority_enabled явно выключаем — былбы fast-lane bypass ломает фильтры.
     DEFAULTS = {
         "max_price_ton": 50.0,
         "floor_tolerance_pct": 0.0,
+        "strict_below_floor": True,
+        "min_savings_ton": 0.0,
         "min_discount_pct": 0,
         "require_floor": True,
         "filter_rarity": [],
         "filter_markets": ["mrkt", "fragment", "portals"],
         "notifications_on": True,
+        "rare_priority_enabled": False,
     }
     settings_store.save_settings(DEFAULTS.copy())
 
-    # === Базовая floor-логика ===
-    test("is_profitable: 30 при floor=30 (на полу) → True",
-         is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    # === Базовая floor-логика (strict_below_floor=True) ===
+    # НОВОЕ: по умолчанию price == floor БОЛЬШЕ НЕ алертит (ноль профита).
+    test("is_profitable: 30 при floor=30 (ровно по полу) → False",
+         not is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 29.99 при floor=30 (чуть ниже пола) → True",
+         is_profitable({"price": 29.99, "floor_price": 30.0}, "mrkt"))
     test("is_profitable: 25 при floor=30 (ниже пола) → True",
          is_profitable({"price": 25.0, "floor_price": 30.0}, "mrkt"))
     test("is_profitable: 31 при floor=30, tol=0% → False",
@@ -360,13 +367,86 @@ try:
     test("is_profitable: 45 при floor=30 (главный баг!) → False",
          not is_profitable({"price": 45.0, "floor_price": 30.0}, "mrkt"))
 
-    # === Tolerance ===
-    s = DEFAULTS.copy(); s["floor_tolerance_pct"] = 5.0
+    # === Отключённый strict_below_floor (старое поведение) ===
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False
     settings_store.save_settings(s)
-    test("is_profitable: 31.5 при floor=30, tol=5% → True (30*1.05=31.5)",
+    test("is_profitable: 30 при floor=30, strict=False → True (старое поведение)",
+         is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
+
+    # === Tolerance (работает только при strict_below_floor=False) ===
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False; s["floor_tolerance_pct"] = 5.0
+    settings_store.save_settings(s)
+    test("is_profitable: 31.5 при floor=30, tol=5% strict=False → True (30*1.05=31.5)",
          is_profitable({"price": 31.5, "floor_price": 30.0}, "mrkt"))
-    test("is_profitable: 33 при floor=30, tol=5% → False",
+    test("is_profitable: 33 при floor=30, tol=5% strict=False → False",
          not is_profitable({"price": 33.0, "floor_price": 30.0}, "mrkt"))
+    s = DEFAULTS.copy(); s["floor_tolerance_pct"] = 5.0  # strict_below_floor=True (дефолт)
+    settings_store.save_settings(s)
+    test("is_profitable: 31.5 при floor=30, tol=5% strict=True → False (strict побеждает tol)",
+         not is_profitable({"price": 31.5, "floor_price": 30.0}, "mrkt"))
+
+    # === min_savings_ton (абсолютный порог экономии) ===
+    s = DEFAULTS.copy(); s["min_savings_ton"] = 1.0
+    settings_store.save_settings(s)
+    test("is_profitable: 29.5 при floor=30, min_savings=1.0 → False (экономия 0.5 < 1.0)",
+         not is_profitable({"price": 29.5, "floor_price": 30.0}, "mrkt"))
+    test("is_profitable: 28 при floor=30, min_savings=1.0 → True (экономия 2.0 >= 1.0)",
+         is_profitable({"price": 28.0, "floor_price": 30.0}, "mrkt"))
+
+    # === Регрессия: rare_priority НЕ должен обходить floor-проверки ===
+    # Юзер пожаловался: «когда ставлю минимум цену над флор, бот всё равно алертит».
+    # Причина: до фикса rare_priority_enabled=true (default) делал bypass всех
+    # фильтров включая strict_below_floor. Теперь is_ultra_rare обходит только
+    # вторичные фильтры (mono, watchlist, max_rarity_pm, min_discount_pct), но
+    # не цены и floor.
+    s = DEFAULTS.copy()
+    s["rare_priority_enabled"] = True
+    s["rare_priority_pm"] = 5.0
+    s["strict_below_floor"] = True
+    settings_store.save_settings(s)
+    rare_gift = {"price": 100.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) НО price=100 > floor=30 → False (rare НЕ обходит floor)",
+         not is_profitable(rare_gift, "mrkt"))
+    rare_below = {"price": 25.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰) И price=25 < floor=30 → True",
+         is_profitable(rare_below, "mrkt"))
+    # rare-priority обходит min_discount_pct когда цена ниже floor.
+    s["min_discount_pct"] = 50  # требуем -50%
+    settings_store.save_settings(s)
+    rare_low_discount = {"price": 29.0, "floor_price": 30.0, "rarities_pm": {"model": 1.0}}
+    test("is_profitable: ультра-редкий (1‰), discount=3.3% < min_disc=50 → True (rare обходит discount)",
+         is_profitable(rare_low_discount, "mrkt"))
+    # обычный лот с discount<min_discount → False
+    normal_low_discount = {"price": 29.0, "floor_price": 30.0}
+    test("is_profitable: НЕ редкий, discount=3.3% < min_disc=50 → False",
+         not is_profitable(normal_low_discount, "mrkt"))
+
+    # === Регрессия: watchlist НЕ должен обходить strict_below_floor ===
+    s = DEFAULTS.copy()
+    s["strict_below_floor"] = True
+    s["watchlist_models"] = ["Olympia"]
+    s["rare_priority_enabled"] = False
+    settings_store.save_settings(s)
+    watch_above = {"price": 100.0, "floor_price": 30.0,
+                   "model_name": "Olympia", "rarities_pm": {}}
+    test("is_profitable: watchlist+price>floor+strict → False (strict авторитативен)",
+         not is_profitable(watch_above, "mrkt"))
+    watch_below = {"price": 25.0, "floor_price": 30.0,
+                   "model_name": "Olympia", "rarities_pm": {}}
+    test("is_profitable: watchlist+price<floor+strict → True",
+         is_profitable(watch_below, "mrkt"))
+
+    # === Регрессия: recent_rare_mode НЕ должен обходить strict_below_floor ===
+    s = DEFAULTS.copy()
+    s["strict_below_floor"] = True
+    s["recent_rare_mode"] = True
+    s["recent_rare_pm"] = 5.0
+    s["rare_priority_enabled"] = False
+    settings_store.save_settings(s)
+    rec_rare_above = {"price": 100.0, "floor_price": 30.0,
+                      "rarities_pm": {"model": 1.0}}
+    test("is_profitable: recent_rare+price>floor+strict → False",
+         not is_profitable(rec_rare_above, "mrkt"))
 
     # === require_floor ===
     s = DEFAULTS.copy(); s["require_floor"] = True
@@ -387,7 +467,9 @@ try:
          is_profitable({"price": 5.0, "floor_price": 10.0}, "mrkt"))
 
     # === min_discount_pct ===
-    s = DEFAULTS.copy(); s["min_discount_pct"] = 25
+    # С дефолтным strict_below_floor=True отфильтруется price == floor раньше,
+    # чем min_discount_pct до него дойдёт — поэтому тестируем с явными strict=False.
+    s = DEFAULTS.copy(); s["strict_below_floor"] = False; s["min_discount_pct"] = 25
     settings_store.save_settings(s)
     test("is_profitable: скидка 0% < 25% → False",
          not is_profitable({"price": 30.0, "floor_price": 30.0}, "mrkt"))
@@ -787,6 +869,8 @@ try:
         "max_price_ton": 50,
         "min_price_ton": 0,
         "floor_tolerance_pct": 0,
+        "strict_below_floor": True,
+        "min_savings_ton": 0.0,
         "min_discount_pct": 0,
         "require_floor": False,
         "filter_rarity": [],
@@ -796,6 +880,7 @@ try:
         "number_filters": [],
         "max_rarity_pm": 0,
         "notifications_on": True,
+        "rare_priority_enabled": False,  # иначе fast-lane bypass сыплет все фильтрры
     }
 
     def with_settings(**overrides):
@@ -804,8 +889,9 @@ try:
         settings_store.save_settings(s)
         return s
 
+    # Цена строго ниже floor (5 < 6) — чтобы strict_below_floor=True не отбросил.
     gift_low_num = {
-        "name": "Test", "price": 5.0, "floor_price": 5.0, "number": 42,
+        "name": "Test", "price": 5.0, "floor_price": 6.0, "number": 42,
         "colors": [0x336699, 0x4477AA, 0x224488],
         "rarities_pm": {"model": 5.0, "backdrop": 12.0, "symbol": 0.8},
     }
@@ -833,6 +919,14 @@ try:
     with_settings(monochrome_only=True)
     test("monochrome_only: синий backdrop → выгодно", is_profitable(gift_low_num))
     test("monochrome_only: радуга → не выгодно", not is_profitable(gift_no_color))
+    # Regression: лоты без RGB-данных (Fragment HTML, Portals GraphQL) не должны
+    # пропадать из выдачи когда монохром-фильтр включён.
+    gift_no_colors_field = dict(gift_low_num); gift_no_colors_field["colors"] = []
+    test("monochrome_only: нет данных о цвете → fail-open (выгодно)",
+         is_profitable(gift_no_colors_field))
+    gift_one_color = dict(gift_low_num); gift_one_color["colors"] = [0x336699]
+    test("monochrome_only: один цвет (недостаточно для проверки) → fail-open",
+         is_profitable(gift_one_color))
 
     # filter_collections
     with_settings(filter_collections=["Test"])
@@ -840,6 +934,15 @@ try:
 
     with_settings(filter_collections=["Other"])
     test("filter_collections: Test не в списке → не выгодно", not is_profitable(gift_low_num))
+
+    # Regression: case-insensitive сравнение, чтобы маркеты с разной нормализацией
+    # имени коллекции («plush pepe» vs «Plush Pepe») не пролетали мимо фильтра.
+    with_settings(filter_collections=["test"])
+    test("filter_collections: lowercase 'test' в списке матчит 'Test' (case-insens)",
+         is_profitable(gift_low_num))
+    with_settings(filter_collections=["TEST  "])
+    test("filter_collections: 'TEST' с пробелами в списке матчит 'Test'",
+         is_profitable(gift_low_num))
 
     # max_rarity_pm — symbol=0.8 ≤ 1
     with_settings(max_rarity_pm=1.0)
@@ -899,6 +1002,291 @@ try:
     _clear_caches_for_test()
     test("После очистки кэша — не апплаит",
          apply_authoritative_floors(gifts, market="mrkt") == 0)
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[15] dedup_cache.py — in-memory LRU перед SQLite (hot-path)")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import dedup_cache
+
+    dedup_cache.reset()
+    test("Пустой cache: contains → False", not dedup_cache.contains("mrkt_1"))
+    test("Пустой cache: size == 0", dedup_cache.size() == 0)
+
+    dedup_cache.mark_seen("mrkt_1")
+    test("После mark_seen: contains == True", dedup_cache.contains("mrkt_1"))
+    test("После mark_seen: size == 1", dedup_cache.size() == 1)
+
+    # Идемпотентность mark_seen — не дублирует.
+    dedup_cache.mark_seen("mrkt_1")
+    test("mark_seen идемпотентен: size == 1", dedup_cache.size() == 1)
+
+    # Пустой uid игнорируется — не должен ронять модуль.
+    dedup_cache.mark_seen("")
+    test("Пустой uid не добавляется", dedup_cache.size() == 1)
+    test("contains('') == False", not dedup_cache.contains(""))
+
+    # mark_many — батч.
+    dedup_cache.mark_many([f"portals_{i}" for i in range(5)])
+    test("mark_many добавил 5 → size==6", dedup_cache.size() == 6)
+    test("contains portals_3", dedup_cache.contains("portals_3"))
+
+    # LRU-eviction: temporarily small cache.
+    dedup_cache.reset()
+    original_max = dedup_cache._CACHE_MAX
+    dedup_cache._CACHE_MAX = 3
+    try:
+        for u in ("a", "b", "c", "d"):
+            dedup_cache.mark_seen(u)
+        # 'a' должен быть выкинут (LRU).
+        test("LRU: после переполнения старейший выкинут",
+             not dedup_cache.contains("a") and dedup_cache.contains("d"))
+        test("LRU: size держится равным MAX", dedup_cache.size() == 3)
+
+        # touch обновляет позицию.
+        dedup_cache.contains("b")  # touch → b становится свежее
+        dedup_cache.mark_seen("e")  # должен выкинуть c (старейший после touch)
+        test("LRU: touch обновляет позицию (b остаётся)",
+             dedup_cache.contains("b") and not dedup_cache.contains("c"))
+    finally:
+        dedup_cache._CACHE_MAX = original_max
+        dedup_cache.reset()
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[16] ai_cache.py — кэш AI-вердиктов с TTL и signature")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import ai_cache
+    import time as _time
+
+    ai_cache.reset_cache()
+    ai_cache.reset_stats()
+
+    g1 = {
+        "name": "Plush Pepe", "model_name": "Diamond",
+        "backdrop_name": "Sapphire", "price": 100.0, "floor_price": 110.0,
+    }
+    g2 = {
+        "name": "Plush Pepe", "model_name": "Diamond",
+        "backdrop_name": "Sapphire", "price": 100.0, "floor_price": 110.0,
+    }
+    g_diff_price = {
+        "name": "Plush Pepe", "model_name": "Diamond",
+        "backdrop_name": "Sapphire", "price": 200.0, "floor_price": 110.0,
+    }
+    g_diff = {
+        "name": "Plush Pepe", "model_name": "Gold",
+        "backdrop_name": "Sapphire", "price": 100.0, "floor_price": 110.0,
+    }
+
+    sig1 = ai_cache.make_signature(g1, "mrkt", persona="balanced", model="m1")
+    sig2 = ai_cache.make_signature(g2, "mrkt", persona="balanced", model="m1")
+    sig_dp = ai_cache.make_signature(g_diff_price, "mrkt", persona="balanced", model="m1")
+    sig3 = ai_cache.make_signature(g_diff, "mrkt", persona="balanced", model="m1")
+    test("Signature: одинаковые лоты → одна сигнатура", sig1 == sig2)
+    test("Signature: 2x цена → разные ключи (другой bucket)", sig1 != sig_dp)
+    test("Signature: разный model_name → разные ключи", sig1 != sig3)
+
+    # persona/model входят в ключ.
+    sig_other_persona = ai_cache.make_signature(g1, "mrkt", persona="trader", model="m1")
+    sig_other_model = ai_cache.make_signature(g1, "mrkt", persona="balanced", model="m2")
+    test("Signature: разная persona → разный ключ", sig1 != sig_other_persona)
+    test("Signature: разная model → разный ключ", sig1 != sig_other_model)
+
+    # put/get с TTL > 0.
+    ai_cache.put(sig1, "BUY conf:8/10 — выгодно")
+    cached = ai_cache.get(sig1, ttl_sec=300)
+    test("get(ttl>0): возвращает закэшированный текст",
+         cached == "BUY conf:8/10 — выгодно")
+
+    # ttl=0 — кэш отключён.
+    test("get(ttl=0): None даже если есть запись", ai_cache.get(sig1, ttl_sec=0) is None)
+
+    # Просрочка через manual override timestamp.
+    with ai_cache._lock:
+        ts, val = ai_cache._cache[sig1]
+        ai_cache._cache[sig1] = (ts - 10000, val)
+    test("get(ttl=300, протух): возвращает None",
+         ai_cache.get(sig1, ttl_sec=300) is None)
+
+    # Stats.
+    ai_cache.reset_stats()
+    ai_cache.reset_cache()
+    ai_cache.record_request("auto")
+    ai_cache.record_request("auto")
+    ai_cache.put(sig1, "X")
+    ai_cache.get(sig1, ttl_sec=300)  # hit
+    ai_cache.record_miss("groq", input_chars=300, output_chars=120)
+    st = ai_cache.get_stats()
+    test("Stats: requests подсчитаны", st["requests"] == 2)
+    test("Stats: cache_hits подсчитаны", st["cache_hits"] == 1)
+    test("Stats: by_provider подсчитан", st["by_provider"].get("groq") == 1)
+    test("Stats: by_task подсчитан", st["by_task"].get("auto") == 2)
+    test("Stats: est_input_tokens оценка ≈100", 80 <= st["est_input_tokens"] <= 120)
+    test("Stats: cache_hit_rate расчёт", st["cache_hit_rate"] == 50.0)
+
+    ai_cache.reset_cache()
+    ai_cache.reset_stats()
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[17] database.py — add_gifts_bulk (атомарный батч-insert)")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import os as _os
+    import tempfile as _tempfile
+
+    # Изолируем тестовую БД через override DB_PATH.
+    tmp_db = _tempfile.NamedTemporaryFile(delete=False, suffix=".sqlite")
+    tmp_db.close()
+    _os.environ["DB_PATH"] = tmp_db.name
+    # Перезагружаем database с новым DB_PATH.
+    import importlib as _il
+    import database as _db_module
+    _il.reload(_db_module)
+    _db_module.init_db()
+
+    # Пустой список — 0 вставок, не падает.
+    test("add_gifts_bulk([]) → 0", _db_module.add_gifts_bulk([]) == 0)
+
+    rows = [
+        ("mrkt_1", "Plush Pepe #1", 10.0, "mrkt"),
+        ("mrkt_2", "Plush Pepe #2", 11.0, "mrkt"),
+        ("portals_1", "Chill Flame", 5.5, "portals"),
+    ]
+    n = _db_module.add_gifts_bulk(rows)
+    test("add_gifts_bulk: вставлено 3", n == 3)
+    test("После bulk: is_gift_seen работает",
+         _db_module.is_gift_seen("mrkt_1") and _db_module.is_gift_seen("portals_1"))
+
+    # Повторный bulk с теми же id — INSERT OR IGNORE → 0 новых.
+    n2 = _db_module.add_gifts_bulk(rows)
+    test("add_gifts_bulk: повтор → 0 новых", n2 == 0)
+
+    # Микс старых и новых.
+    mixed = rows + [("portals_2", "Chill Flame #2", 6.0, "portals")]
+    n3 = _db_module.add_gifts_bulk(mixed)
+    test("add_gifts_bulk: микс — только новые считаются", n3 == 1)
+
+    # collection_history: пустая БД для имени без алертов
+    empty = _db_module.collection_history("Nonexistent Collection", hours=24)
+    test("collection_history: нет алертов → {}", empty == {})
+
+    # collection_history: пустое имя → {}
+    test("collection_history: пустое имя → {}",
+         _db_module.collection_history("", hours=24) == {})
+
+    # collection_history: после log_alert считает корректно
+    _db_module.log_alert("mrkt", {
+        "id": "h1", "name": "TestColl", "number": "1",
+        "price": 5.0, "floor_price": 6.0,
+        "rarities_pm": {"model": 5},
+    })
+    _db_module.log_alert("mrkt", {
+        "id": "h2", "name": "TestColl", "number": "2",
+        "price": 4.0, "floor_price": 6.0,
+    })
+    _db_module.log_alert("portals", {
+        "id": "h3", "name": "OtherColl", "number": "1",
+        "price": 10.0, "floor_price": 12.0,
+    })
+    h = _db_module.collection_history("TestColl", hours=24)
+    test("collection_history: 2 алерта по TestColl",
+         h.get("alerts_count") == 2)
+    test("collection_history: min_price корректен",
+         h.get("min_price") == 4.0)
+    test("collection_history: case-insensitive (testcoll → TestColl)",
+         _db_module.collection_history("testcoll", hours=24).get("alerts_count") == 2)
+
+    try:
+        _os.unlink(tmp_db.name)
+    except OSError:
+        pass
+    _os.environ.pop("DB_PATH", None)
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[18] ai_advisor.py — фабрики провайдеров (без сетевых запросов)")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import ai_advisor
+
+    # off → None
+    test("get_active_provider(off) → None",
+         ai_advisor.get_active_provider({"ai_provider": "off"}) is None)
+    test("get_fast_provider(off) → None",
+         ai_advisor.get_fast_provider({"ai_provider": "off"}) is None)
+    test("get_fallback_provider(off) → None",
+         ai_advisor.get_fallback_provider({"ai_fallback_provider": "off"}) is None)
+
+    # пустой ключ → None
+    test("groq без ключа → None",
+         ai_advisor.get_active_provider(
+             {"ai_provider": "groq", "groq_api_key": ""}) is None)
+
+    # с ключом → объект
+    p = ai_advisor.get_active_provider({
+        "ai_provider": "groq",
+        "groq_api_key": "test_key",
+        "groq_model": "llama-3.3-70b-versatile",
+    })
+    test("groq+ключ → GroqProvider", p is not None and p.name == "groq")
+    test("groq: model выбран", p.model == "llama-3.3-70b-versatile")
+
+    # Невалидная модель → fallback на дефолт.
+    p2 = ai_advisor.get_active_provider({
+        "ai_provider": "groq",
+        "groq_api_key": "k",
+        "groq_model": "definitely-not-a-real-model",
+    })
+    test("groq: невалидная модель → дефолт", p2.model == ai_advisor.GROQ_MODELS[0])
+
+    # Fast provider — другая модель.
+    fast = ai_advisor.get_fast_provider({
+        "ai_provider": "groq",
+        "groq_api_key": "k",
+        "groq_model": "llama-3.3-70b-versatile",
+        "ai_fast_model": "llama-3.1-8b-instant",
+    })
+    test("get_fast_provider: использует ai_fast_model",
+         fast is not None and fast.model == "llama-3.1-8b-instant")
+
+    # Fallback с использованием primary key, если fallback key пуст.
+    fb = ai_advisor.get_fallback_provider({
+        "ai_provider": "groq",
+        "groq_api_key": "k",
+        "ai_fallback_provider": "groq",
+        "ai_fallback_api_key": "",  # пусто — должен взять groq_api_key
+    })
+    test("get_fallback_provider: подменяет ключ из primary",
+         fb is not None and fb.name == "groq")
+
+    # Gemini.
+    p_gemini = ai_advisor.get_active_provider({
+        "ai_provider": "gemini",
+        "gemini_api_key": "g_key",
+        "gemini_model": "gemini-2.0-flash",
+    })
+    test("gemini+ключ → GeminiProvider",
+         p_gemini is not None and p_gemini.name == "gemini")
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")

@@ -1,0 +1,28 @@
+# Fly.io app for the Mini App backend (FastAPI). The bot lives separately
+# (Render or alisa-gift-bot/fly.toml). Set PUSH_API_KEY as a secret so the
+# bot can authenticate via X-API-Key when pushing alerts/settings.
+app = "alisa-mini-app"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+[[mounts]]
+  source = "alisa_mini_data"
+  destination = "/data"
+
+[env]
+  BACKEND_DATA_DIR = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
+  cpu_kind = "shared"
