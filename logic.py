@@ -1232,11 +1232,17 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         if not cats.intersection(number_filters):
             return False
 
-    # 8. Монохромный backdrop — ультра-редким пропускаем
+    # 8. Монохромный backdrop — ультра-редким пропускаем.
+    # Цвета backdrop'а отдаёт только MRKT API; Fragment HTML и Portals GraphQL
+    # не возвращают RGB. Чтобы тоггл «только монохром» не выкашивал ВСЕ алерты
+    # с этих маркетов (баг до 2026-05), мы пропускаем (fail-open) лоты без
+    # данных о цвете, а реально фильтруем только лоты, для которых color
+    # известен (≥ 2 RGB-значений).
     if bool(s.get("monochrome_only", False)) and not is_ultra_rare:
         colors = gift_data.get("colors") or []
-        if not is_monochrome(colors):
-            return False
+        if isinstance(colors, list) and len(colors) >= 2:
+            if not is_monochrome(colors):
+                return False
 
     # 9. Редкий атрибут (минимальный per-mille). Если is_ultra_rare=True,
     # значит лот уже прошёл более жёсткий порог rare_priority_pm — не дублируем.
