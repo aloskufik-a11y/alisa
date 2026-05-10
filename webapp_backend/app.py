@@ -212,8 +212,21 @@ async def fetch_portals() -> list[dict]:
                 floor = float(p.get("floor_price"))
             except (TypeError, ValueError):
                 floor = None
+            # Реальное время листинга — для корректной работы фильтра
+            # «✨ Новые 5 мин» в Mini App. Раньше клали time.time() (момент
+            # cкрейпа) → весь батч казался «свежим» сразу после fetch'а
+            # и уходил из «новых» через 5 мин одновременно.
+            listed_at = p.get("listed_at")
+            ts = int(time.time())
+            if isinstance(listed_at, str) and listed_at:
+                try:
+                    from datetime import datetime
+                    iso = listed_at.replace("Z", "+00:00")
+                    ts = int(datetime.fromisoformat(iso).timestamp())
+                except (ValueError, TypeError):
+                    pass
             items.append({
-                "ts": int(time.time()),
+                "ts": ts,
                 "market": "portals",
                 "id": p.get("id"),
                 "name": p.get("name"),
