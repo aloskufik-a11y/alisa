@@ -41,6 +41,9 @@ logs/
 
 # Временные файлы
 *.tmp
+
+# Local Mini App backend state (Fly /data fallback)
+webapp_backend/.state/
 *.bak
 *.swp
 .DS_Store
@@ -55,3 +58,4 @@ Thumbs.db
 build/
 dist/
 *.egg
+webapp_backend/.state/

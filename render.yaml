@@ -27,9 +27,34 @@ services:
       - key: TELEGRAM_STRING_SESSION
         sync: false
       - key: WEBAPP_BACKEND_URL
-        value: https://tg-gift-monitor-webap-lypjcjfp.fly.dev
+        value: https://gift-monitor-mini-app.onrender.com
       - key: MINI_APP_URL
-        value: https://tg-gift-monitor-webap-lypjcjfp.fly.dev
+        value: https://gift-monitor-mini-app.onrender.com
+      - key: WEBAPP_BACKEND_KEY
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: LOG_LEVEL
+        value: INFO
+
+  # Mini App backend (FastAPI). Бот пушит сюда фид + настройки через
+  # X-API-Key (значение WEBAPP_BACKEND_KEY у бота должно совпадать с
+  # PUSH_API_KEY у этого сервиса). На free tier нет persistent disk —
+  # backend пишет state в .state/ внутри контейнера, который очищается
+  # при каждом redeploy. Это OK: бот пушит данные непрерывно.
+  - type: web
+    name: gift-monitor-mini-app
+    runtime: docker
+    plan: free
+    region: frankfurt
+    branch: devin/1777975321-mini-app-overhaul
+    dockerfilePath: ./webapp_backend/Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: PUSH_API_KEY
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
       - key: LOG_LEVEL

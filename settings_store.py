@@ -15,7 +15,11 @@ _lock = threading.Lock()
 DEFAULT_SETTINGS: dict = {
     "max_price_ton": 50.0,              # Макс. цена в TON для ВСЕХ маркетов (абсолютный потолок)
     "min_price_ton": 0.0,               # Мин. цена в TON (нижний порог; 0 = без ограничения)
-    "floor_tolerance_pct": 0.0,         # Допустимое превышение Floor (%). 0 = только floor
+    "floor_tolerance_pct": 0.0,         # Когда strict_below_floor=False: допустимое превышение Floor (%).
+    "strict_below_floor": True,         # Если True — price ДОЛЖЕН быть строго < floor.
+                                        # Покупка точно по полу = ноль профита, такие лоты не алертим по умолчанию.
+                                        # False = старое поведение (price <= floor допустим).
+    "min_savings_ton": 0.0,             # Доп. фильтр: абсолютный минимум экономии в TON (floor − price ≥ этого).
     "min_discount_pct": 0,              # Мин. скидка от Floor (%) (доп. фильтр)
     "require_floor": True,              # Алертить только лоты с известным floor
     "filter_rarity": [],                # [] = все редкости
@@ -57,6 +61,58 @@ DEFAULT_SETTINGS: dict = {
     # Telegram Mini App: публичный HTTPS URL Web App (для кнопки в меню).
     # Пустая строка = кнопка скрыта.
     "mini_app_url": "",
+
+    # Daily digest — раз в сутки шлёт топ-сделок и стату.
+    "daily_digest_enabled":     True,
+    "daily_digest_hour_utc":    6,      # 6 UTC ≈ 09:00 МСК / 12:00 Дубай. 0-23.
+    "daily_digest_window_hours": 24,
+    # Внутренний state — дата последней отправки (YYYY-MM-DD), не редактируется через UI.
+    "last_digest_date":         "",
+
+    # Ультра-редкие лоты — Fast lane: при наличии хотя бы одного атрибута ≤ rare_priority_pm
+    # алерт идёт мимо обычных фильтров (max_price, min_discount, watchlist, …).
+    # Альтернативная семантика recent_rare_mode который требует price > floor условие.
+    "rare_priority_enabled": True,
+    "rare_priority_pm":      5.0,
+
+    # AI-помощник: автоматический комментарий под алертом и брифинг в digest.
+    # Поддерживаемые провайдеры: "off", "groq", "gemini".
+    "ai_provider":              "off",
+    "groq_api_key":             "",
+    "groq_model":               "llama-3.3-70b-versatile",
+    "gemini_api_key":           "",
+    "gemini_model":             "gemini-2.0-flash",
+    # Триггеры — куда AI-вердикт включается.
+    "ai_for_alerts":            False,   # если True — каждый алерт в TG получит AI-приписку
+    "ai_for_digest":            True,    # если True — Daily Digest получит AI-брифинг сверху
+    # Sanity-потолок: AI добавляется только в алерты с дисконтом ≥ ai_alerts_min_discount_pct,
+    # чтобы не перегружать билинг при больших циклах.
+    "ai_alerts_min_discount_pct": 10.0,
+
+    # AI-persona — стиль анализа. Варианты:
+    #   "balanced"   — сбалансированный (default)
+    #   "trader"     — флипы +5-15%, ликвидность
+    #   "speculator" — агрессивные сделки, ≥20% дисконт
+    #   "collector"  — редкости, не сиюминутный профит
+    #   "custom"     — кастомный prompt из ai_custom_prompt
+    "ai_persona":               "balanced",
+    # Кастомный system prompt для AI (≤ 800 символов). Если ai_persona == "custom",
+    # этот prompt заменяет встроенный. Если пустой — fallback на balanced.
+    "ai_custom_prompt":         "",
+
+    # ── AI v2: per-task models, fallback chain, response cache ──────────────
+    # Для авто-вердикта под каждым алертом используется быстрая дешёвая модель
+    # (≈ 50-150ms). Для /ai_ask и daily digest — основная модель (ai_provider/ai_model).
+    # Если ai_fast_model пустая — на авто-вердикты идёт основная модель.
+    "ai_fast_model":            "llama-3.1-8b-instant",  # быстрейший Groq
+    # Резервный провайдер на случай сбоя/квоты основного. "off" = без fallback.
+    "ai_fallback_provider":     "off",   # "off" | "groq" | "gemini"
+    "ai_fallback_api_key":      "",
+    "ai_fallback_model":        "",      # пусто → дефолт провайдера
+    # TTL кэша AI-ответов (секунды). 0 = выключить кэш. Кэш хранит вердикт по
+    # (имя+model+backdrop+цена-bucket+floor-bucket) — re-listings того же лота
+    # не жгут токены лишний раз.
+    "ai_cache_ttl_sec":         300,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)
