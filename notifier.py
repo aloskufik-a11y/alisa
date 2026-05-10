@@ -2,11 +2,22 @@
 Aiogram Bot — уведомления и управление настройками.
 ВСЕ ЦЕНЫ В TON. Stars показываются только как справочная информация.
 """
+import html
 import os
 import random
 import asyncio
 import logging
 from datetime import datetime
+
+
+def _esc(text) -> str:
+    """HTML-escape для безопасной вставки текста в parse_mode=HTML.
+
+    Защищает от того, что AI-провайдер или внешняя строка вернёт текст с
+    символами <, >, &. aiogram.parse_mode=HTML парсит такие как разметку
+    и упадёт TelegramBadRequest, ломая алерт.
+    Принимает любой тип, конвертирует в str."""
+    return html.escape("" if text is None else str(text), quote=False)
 
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import Command
@@ -344,11 +355,13 @@ async def cmd_ai_test(message: types.Message):
     ok, text = await test_provider(provider)
     if ok:
         await message.answer(
-            f"✅ <b>{provider_name}</b> работает\n\n"
-            f"<i>Ответ модели:</i>\n<code>{text[:500]}</code>"
+            f"✅ <b>{_esc(provider_name)}</b> работает\n\n"
+            f"<i>Ответ модели:</i>\n<code>{_esc(text[:500])}</code>"
         )
     else:
-        await message.answer(f"❌ <b>{provider_name}</b> не отвечает\n\n<i>{text}</i>")
+        await message.answer(
+            f"❌ <b>{_esc(provider_name)}</b> не отвечает\n\n<i>{_esc(text)}</i>"
+        )
 
 
 @dp.message(Command("digest"))
@@ -401,7 +414,7 @@ async def cmd_ai_ask(message: types.Message):
         (s.get("ai_provider") or "").lower(), "🤖"
     )
     await placeholder.edit_text(
-        f"{provider_emoji} <b>AI</b>\n\n{answer[:3500]}",
+        f"{provider_emoji} <b>AI</b>\n\n{_esc(answer[:3500])}",
         parse_mode="HTML",
     )
 
@@ -520,7 +533,7 @@ async def cb_ai_ask(callback: CallbackQuery):
         (s.get("ai_provider") or "").lower(), "🤖"
     )
     await callback.message.answer(
-        f"{provider_emoji} <i>AI: {text[:1000]}</i>",
+        f"{provider_emoji} <i>AI: {_esc(text[:1000])}</i>",
         parse_mode="HTML",
         reply_to_message_id=callback.message.message_id,
     )
@@ -1440,7 +1453,7 @@ async def _send_ai_verdict(bot_instance, chat_id: int, gift: dict, market: str) 
         )
         await bot_instance.send_message(
             chat_id=chat_id,
-            text=f"{provider_emoji} <i>AI: {text}</i>",
+            text=f"{provider_emoji} <i>AI: {_esc(text)}</i>",
             parse_mode="HTML",
             link_preview_options=LinkPreviewOptions(is_disabled=True),
         )
