@@ -1219,10 +1219,13 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
     # 6. Коллекция (если задан белый список) — collection-фильтр оставляем
     # даже для ультра-редких: если юзер ограничил себя 3 коллекциями, он не хочет
     # получать алерты по другим коллекциям, даже редкие.
+    # Сравнение case-insensitive: разные маркеты могут возвращать имя в разном
+    # регистре («Plush Pepe» vs «plush pepe»), и watchlist уже работает так же.
     col_filter = s.get("filter_collections", [])
     if col_filter:
-        gift_name = (gift_data.get("name") or "").strip()
-        if not gift_name or gift_name not in col_filter:
+        gift_name = (gift_data.get("name") or "").strip().lower()
+        col_filter_lc = {str(x).strip().lower() for x in col_filter if x}
+        if not gift_name or gift_name not in col_filter_lc:
             return False
 
     # 7. Фильтры по номеру подарка (OR) — number-фильтр аналогично оставляем
