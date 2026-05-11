@@ -22,6 +22,10 @@ import aiohttp
 from database import is_gift_seen, add_gift  # noqa: F401
 import dedup_cache
 from logic import is_profitable, format_price, apply_floors
+from floor_cache import (
+    update_getgems_floors_from_batch,
+    apply_authoritative_floors,
+)
 from config import (
     GETGEMS_POLL_INTERVAL,
     GETGEMS_API_KEY,
@@ -296,10 +300,20 @@ async def start_getgems_monitor(
                         )
                 else:
                     consecutive_fails = 0
+                    # 1) Кладём min-цены текущего батча в накопительный кэш
+                    #    (раздельно от batch-derived floor).
+                    updated_count = update_getgems_floors_from_batch(gifts)
+                    # 2) Затем пробуем перетереть floor_price лотов
+                    #    авторитетным значением из кэша. Это даёт более
+                    #    точный floor чем min внутри батча 100 свежих.
+                    auth_count = apply_authoritative_floors(gifts, market="getgems")
+                    # 3) Для лотов, по которым кэш ещё не накопил данных,
+                    #    fallback к старому batch-derived floor.
                     apply_floors(gifts, key="name")
                     logger.info(
                         f"Getgems[{lane}]: получено {len(gifts)} лотов, "
-                        f"floor рассчитан"
+                        f"floor (auth-cache: {auth_count}/{len(gifts)}, "
+                        f"updated mins: {updated_count})"
                     )
                     try:
                         from feed_store import push_batch

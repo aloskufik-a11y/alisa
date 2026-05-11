@@ -60,6 +60,7 @@ def _build_payload(gift: dict, market: str) -> dict:
                 build_mrkt_web_link,
                 build_portals_gift_link,
                 build_fragment_gift_link,
+                build_telegram_nft_link,
             )
             gift_id = str(gift.get("id") or "")
             slug = str(gift.get("slug") or "")
@@ -73,6 +74,14 @@ def _build_payload(gift: dict, market: str) -> dict:
                 url = build_fragment_gift_link(
                     gift_id=gift_id, slug=slug, name=name, number=number,
                 )
+            elif market_norm == "getgems":
+                # Getgems offchain — t.me/nft/{Name}-{Number}; fallback —
+                # коллекция.
+                tg_link = build_telegram_nft_link(name, number)
+                if tg_link:
+                    url = tg_link
+                elif slug:
+                    url = f"https://getgems.io/collection/{slug}"
         except Exception:
             url = None
     return {

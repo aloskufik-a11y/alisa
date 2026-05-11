@@ -1040,6 +1040,60 @@ try:
     test("После очистки кэша — не апплаит",
          apply_authoritative_floors(gifts, market="mrkt") == 0)
 
+    # === Getgems multi-batch floor cache (новое в PR) ===
+    from floor_cache import (
+        update_getgems_floors_from_batch,
+        getgems_floor,
+        _clear_getgems_floors_for_test,
+    )
+    _clear_getgems_floors_for_test()
+
+    # Первый батч: видим 3 разных лота Vice Cream
+    batch1 = [
+        {"name": "Vice Cream", "price": 3.0},
+        {"name": "Vice Cream", "price": 2.5},
+        {"name": "Vice Cream", "price": 5.0},
+        {"name": "Plush Pepe", "price": 7000.0},
+    ]
+    update_getgems_floors_from_batch(batch1)
+    test("Getgems floor cache: min Vice Cream после batch1",
+         getgems_floor("Vice Cream") == 2.5)
+    test("Getgems floor cache: Plush Pepe тоже",
+         getgems_floor("Plush Pepe") == 7000.0)
+
+    # Второй батч: пришёл ЕЩЕ дешевле Vice Cream → должен обновиться
+    batch2 = [{"name": "Vice Cream", "price": 2.0}]
+    update_getgems_floors_from_batch(batch2)
+    test("Getgems floor cache: новый минимум 2.0 обновил кэш",
+         getgems_floor("Vice Cream") == 2.0)
+
+    # Третий батч с более дорогим — НЕ должен повышать
+    batch3 = [{"name": "Vice Cream", "price": 10.0}]
+    update_getgems_floors_from_batch(batch3)
+    test("Getgems floor cache: дороже не повышает min",
+         getgems_floor("Vice Cream") == 2.0)
+
+    # Невидимая коллекция → None
+    test("Getgems floor cache: незнакомая коллекция → None",
+         getgems_floor("Unknown Collection") is None)
+
+    # apply_authoritative_floors для market='getgems'
+    gem_gifts = [
+        {"name": "Vice Cream", "price": 5.0, "floor_price": None},
+        {"name": "Plush Pepe", "price": 8000.0, "floor_price": 1.0},  # будет перетёрт
+        {"name": "Unknown",    "price": 1.0, "floor_price": 0.5},
+    ]
+    nn = apply_authoritative_floors(gem_gifts, market="getgems")
+    test("Getgems auth_floors: 2 коллекции в кэше → 2 апплая", nn == 2)
+    test("Getgems auth_floors: Vice Cream → 2.0",
+         gem_gifts[0]["floor_price"] == 2.0)
+    test("Getgems auth_floors: Plush Pepe → 7000.0 (перетёрт)",
+         gem_gifts[1]["floor_price"] == 7000.0)
+    test("Getgems auth_floors: Unknown не тронут",
+         gem_gifts[2]["floor_price"] == 0.5)
+
+    _clear_getgems_floors_for_test()
+
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
     traceback.print_exc()
