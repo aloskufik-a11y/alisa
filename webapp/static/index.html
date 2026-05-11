@@ -133,10 +133,14 @@
     /* iOS HIG: 44×44 клик-таргет. Раньше было 34×34 — слишком мелко на iPhone. */
     width: 40px; height: 40px; border-radius: 12px;
     display: inline-flex; align-items: center; justify-content: center;
-    cursor: pointer; transition: background .15s, transform .1s;
+    cursor: pointer;
+    transition: background .15s, transform .1s, box-shadow .15s;
     font-size: 17px;
   }
-  .iconbtn:hover { background: var(--card-h); }
+  .iconbtn:hover {
+    background: var(--card-h);
+    box-shadow: 0 0 0 1px var(--line);
+  }
   .iconbtn:active { transform: scale(.93); background: var(--card-h); }
   .iconbtn.spin svg, .iconbtn.spin { animation: spin 0.6s linear; }
   @keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
@@ -185,6 +189,9 @@
   .pill[data-flag="sub100"].active    { background: linear-gradient(135deg,#ffd166,#ef9c2b); box-shadow: 0 4px 12px rgba(239,156,43,.35); color: #2b1900; }
   .pill[data-flag="mono"].active      { background: linear-gradient(135deg,#ff8fc6,#cf4fa4); box-shadow: 0 4px 12px rgba(207,79,164,.35); color: #2b0014; }
   .pill[data-flag="new"].active       { background: linear-gradient(135deg,#fed813,#f0a73b); box-shadow: 0 4px 12px rgba(254,216,19,.35); color: #1a1206; }
+  .pill[data-flag="fresh_deals"].active { background: linear-gradient(135deg,#ff5b9c,#ff7a59); box-shadow: 0 4px 14px rgba(255,91,156,.4); color: #fff; }
+  .pill[data-flag="favorites"].active { background: linear-gradient(135deg,#ff5078,#e63b62); box-shadow: 0 4px 12px rgba(255,80,120,.4); color: #fff; }
+  .pill[data-flag="discount10"].active { background: linear-gradient(135deg,#ff7a3d,#e8541e); box-shadow: 0 4px 14px rgba(255,122,61,.4); color: #fff; }
   .pill.market-mrkt.active     { background: linear-gradient(135deg,#a06bff,#7d4fd1); color:#fff; box-shadow: 0 4px 12px rgba(160,107,255,.35); }
   .pill.market-portals.active  { background: linear-gradient(135deg,#34c77c,#1ea05f); color:#fff; box-shadow: 0 4px 12px rgba(52,199,124,.35); }
   .pill.market-fragment.active { background: linear-gradient(135deg,#4ea1ff,#1f6fd6); color:#fff; box-shadow: 0 4px 12px rgba(78,161,255,.35); }
@@ -232,7 +239,10 @@
     -webkit-user-select: text;
     user-select: text;
   }
-  input[type="text"]:focus, input[type="number"]:focus, select:focus { background: var(--card-h); }
+  input[type="text"]:focus, input[type="number"]:focus, select:focus {
+    background: var(--card-h);
+    box-shadow: 0 0 0 2px rgba(78,161,255,.25);
+  }
   input[type="text"] { flex: 1; min-width: 120px; }
   input[type="number"] { width: 86px; }
   select { padding-right: 28px;
@@ -282,18 +292,28 @@
     background: var(--card); border-radius: var(--radius); padding: 12px;
     display: flex; gap: 12px; align-items: flex-start;
     border: 1px solid transparent; cursor: pointer;
-    transition: transform .12s ease, background .15s ease, border-color .15s;
+    transition: transform .12s ease, background .15s ease, border-color .15s,
+                box-shadow .15s ease;
     position: relative; overflow: hidden;
   }
+  .card:hover { background: var(--card-h); }
   .card:active { transform: scale(.985); background: var(--card-h); }
-  .card.disc-high { border-color: rgba(52,199,124,.4); }
+  /* Subtle accent stripe on left edge for any discount card. */
+  .card.disc-high::after,
+  .card.disc-mega::after {
+    content: ""; position: absolute; left: 0; top: 0; bottom: 0;
+    width: 3px; background: var(--good); pointer-events: none;
+    border-radius: var(--radius) 0 0 var(--radius);
+  }
+  .card.disc-high { border-color: rgba(52,199,124,.35); }
   .card.disc-mega {
     border-color: rgba(52,199,124,.7);
-    box-shadow: 0 0 0 1px rgba(52,199,124,.25), 0 6px 22px rgba(52,199,124,.1);
+    box-shadow: 0 0 0 1px rgba(52,199,124,.18), 0 8px 24px rgba(52,199,124,.12);
   }
+  .card.disc-mega::after { width: 4px; box-shadow: 0 0 12px rgba(52,199,124,.6); }
   .card.disc-mega::before {
     content: ""; position: absolute; inset: 0; pointer-events: none;
-    background: linear-gradient(to right, rgba(52,199,124,.12), transparent 40%);
+    background: linear-gradient(to right, rgba(52,199,124,.10), transparent 50%);
   }
   .thumb {
     width: 72px; height: 72px; border-radius: 12px; flex: none;
@@ -732,6 +752,28 @@
   }
   .modal-actions .btn-action { flex: 1; text-align: center; }
 
+  /* Visual divider between filter groups in the horizontal pill row.
+     Subtle vertical line — doesn't grab attention but groups markets vs filters. */
+  .pill-divider {
+    flex: none; width: 1px; height: 18px; align-self: center;
+    background: var(--line); margin: 0 4px;
+  }
+  /* "Ещё" expand toggle for less-used filters. Default: hide rare/number/mono.
+     When body has .more-filters-shown, all .more-filter pills appear. */
+  .pill.more-filters-toggle {
+    background: rgba(255,255,255,.04); color: var(--fg-dim);
+    border: 1px dashed var(--line); font-weight: 500;
+  }
+  .pill.more-filters-toggle.shown {
+    background: rgba(78,161,255,.14); color: var(--accent);
+    border-color: rgba(78,161,255,.4); border-style: solid;
+  }
+  .pill.more-filter { display: none; }
+  body.more-filters-shown .pill.more-filter { display: inline-flex; }
+  /* Always show even-collapsed if user toggled ON one of these pills.
+     This way an active rare-filter never gets hidden out of sight. */
+  .pill.more-filter.active { display: inline-flex; }
+
   /* Clear-all-filters button */
   .clear-all {
     background: transparent; color: var(--fg-dim); border: 1px dashed var(--line);
@@ -780,18 +822,20 @@
     <span class="pill market-portals" data-market="portals"><span class="market-dot" data-mkt-dot="portals"></span>Portals</span>
     <span class="pill market-fragment" data-market="fragment"><span class="market-dot" data-mkt-dot="fragment"></span>Fragment</span>
     <span class="pill market-getgems" data-market="getgems"><span class="market-dot" data-mkt-dot="getgems"></span>Getgems</span>
+    <span class="pill-divider" aria-hidden="true"></span>
     <span class="pill" data-flag="favorites" data-i18n="filter_fav">⭐ Избранное</span>
     <span class="pill" data-flag="below_floor" data-i18n="filter_below_floor">⬇️ Ниже Floor</span>
     <span class="pill" data-flag="fresh_deals" data-i18n="filter_fresh_deals">🆕 Свежие скидки</span>
-    <span class="pill" data-flag="new" data-i18n="filter_new">✨ Новые 5 мин</span>
-    <span class="pill" data-flag="rare5" data-i18n="filter_rare5">💠 Ультра-редкие</span>
-    <span class="pill" data-flag="lucky777">🍀 #777</span>
-    <span class="pill" data-flag="round" data-i18n="filter_round">⭕ Круглые</span>
-    <span class="pill" data-flag="palindrome" data-i18n="filter_palindrome">🔄 Палиндром</span>
-    <span class="pill" data-flag="repeat" data-i18n="filter_repeat">🔁 Повтор</span>
-    <span class="pill" data-flag="sub100">🥇 #&lt;100</span>
-    <span class="pill" data-flag="mono" data-i18n="filter_mono">🎨 Монохром</span>
     <span class="pill" data-flag="discount10" data-i18n="filter_disc10">🔥 Скидка ≥ 10%</span>
+    <span class="pill" data-flag="new" data-i18n="filter_new">✨ Новые 5 мин</span>
+    <span class="pill more-filters-toggle" id="more-filters-toggle">… Ещё</span>
+    <span class="pill more-filter" data-flag="rare5" data-i18n="filter_rare5">💠 Ультра-редкие</span>
+    <span class="pill more-filter" data-flag="mono" data-i18n="filter_mono">🎨 Монохром</span>
+    <span class="pill more-filter" data-flag="lucky777">🍀 #777</span>
+    <span class="pill more-filter" data-flag="round" data-i18n="filter_round">⭕ Круглые</span>
+    <span class="pill more-filter" data-flag="palindrome" data-i18n="filter_palindrome">🔄 Палиндром</span>
+    <span class="pill more-filter" data-flag="repeat" data-i18n="filter_repeat">🔁 Повтор</span>
+    <span class="pill more-filter" data-flag="sub100">🥇 #&lt;100</span>
     <div class="filter-group">
       <span class="pill" id="model-pill">🪄 <span data-i18n="filter_model">Модель</span> ▾</span>
       <div class="filter-pop" id="model-pop">
@@ -896,6 +940,7 @@ const I18N = {
     filter_round: '⭕ Круглые', filter_palindrome: '🔄 Палиндром',
     filter_repeat: '🔁 Повтор', filter_mono: '🎨 Монохром',
     filter_disc10: '🔥 Скидка ≥ 10%',
+    more_filters: '… Ещё', less_filters: '× Скрыть',
     filter_model: 'Модель', filter_backdrop: 'Фон',
     search_models: 'Поиск моделей…', search_backdrops: 'Поиск фонов…',
     clear_all: 'Очистить ×', hot_deals: 'Топ-предложения',
@@ -985,6 +1030,7 @@ const I18N = {
     filter_round: '⭕ Round', filter_palindrome: '🔄 Palindrome',
     filter_repeat: '🔁 Repeats', filter_mono: '🎨 Mono',
     filter_disc10: '🔥 Discount ≥ 10%',
+    more_filters: '… More', less_filters: '× Hide',
     filter_model: 'Model', filter_backdrop: 'Backdrop',
     search_models: 'Search models…', search_backdrops: 'Search backdrops…',
     clear_all: 'Clear ×', hot_deals: 'Hot deals',
@@ -1069,6 +1115,13 @@ function applyI18n() {
   $$('[data-i18n-placeholder]').forEach(el => {
     el.placeholder = t(el.dataset.i18nPlaceholder);
   });
+  // Re-sync more-filters toggle label, чтобы при смене языка кнопка
+  // тоже перевелась.
+  const tog = document.getElementById('more-filters-toggle');
+  if (tog) {
+    const on = document.body.classList.contains('more-filters-shown');
+    tog.textContent = on ? t('less_filters') : t('more_filters');
+  }
 }
 
 // ─── State ───────────────────────────────────────────────
@@ -2645,6 +2698,27 @@ $$('[data-flag]').forEach(p => p.addEventListener('click', () => {
   updateClearAll();
   tg?.HapticFeedback?.selectionChanged();
 }));
+
+// "Ещё" toggle — раскрывает доп.фильтры (редкость/палиндром/повтор/...).
+// Состояние помним в localStorage, чтобы при перезагрузке Mini App панель
+// оставалась развёрнутой если пользователь так выбрал.
+(function setupMoreFilters() {
+  const tog = document.getElementById('more-filters-toggle');
+  if (!tog) return;
+  const KEY = 'gm_more_filters_shown';
+  const apply = (on) => {
+    document.body.classList.toggle('more-filters-shown', !!on);
+    tog.classList.toggle('shown', !!on);
+    tog.textContent = on ? t('less_filters') : t('more_filters');
+  };
+  apply(localStorage.getItem(KEY) === '1');
+  tog.addEventListener('click', () => {
+    const next = !document.body.classList.contains('more-filters-shown');
+    localStorage.setItem(KEY, next ? '1' : '0');
+    apply(next);
+    tg?.HapticFeedback?.selectionChanged();
+  });
+})();
 
 const onSearch = debounce((v) => {
   state.search = v; applyFilters(); renderFeed(); updateClearAll();
