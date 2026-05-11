@@ -130,6 +130,7 @@ def notifs_menu_kb() -> InlineKeyboardMarkup:
     mrkt_on = bool(s.get("mrkt_alerts_on", True))
     frag_on = bool(s.get("fragment_alerts_on", True))
     port_on = bool(s.get("portals_alerts_on", True))
+    gem_on = bool(s.get("getgems_alerts_on", True))
     qs = int(s.get("quiet_hours_start", 0) or 0)
     qe = int(s.get("quiet_hours_end", 0) or 0)
     quiet_text = "выкл." if qs == qe else f"{qs:02d}:00–{qe:02d}:00 UTC"
@@ -142,6 +143,7 @@ def notifs_menu_kb() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text=f"{'✅' if mrkt_on else '⬜'} 🟣 MRKT алерты",  callback_data="toggle_mrkt_alerts")],
         [InlineKeyboardButton(text=f"{'✅' if frag_on else '⬜'} 🔵 Fragment алерты", callback_data="toggle_fragment_alerts")],
         [InlineKeyboardButton(text=f"{'✅' if port_on else '⬜'} 🟢 Portals алерты", callback_data="toggle_portals_alerts")],
+        [InlineKeyboardButton(text=f"{'✅' if gem_on else '⬜'} 💎 Getgems алерты", callback_data="toggle_getgems_alerts")],
         [InlineKeyboardButton(text=f"🌙 Тихие часы: {quiet_text}",                callback_data="set_quiet_hours")],
         [InlineKeyboardButton(text=f"📊 Лимит: {cycle_text}",                     callback_data="set_max_per_cycle")],
         [InlineKeyboardButton(text=f"{rare_mode} Редкие свежие (≤{rare_pm:g}‰)", callback_data="toggle_recent_rare")],
@@ -812,6 +814,15 @@ async def toggle_portals_alerts(callback: CallbackQuery):
     s["portals_alerts_on"] = not bool(s.get("portals_alerts_on", True))
     save_settings(s)
     await callback.answer("Portals: " + ("вкл" if s["portals_alerts_on"] else "выкл"))
+    await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
+
+
+@dp.callback_query(F.data == "toggle_getgems_alerts")
+async def toggle_getgems_alerts(callback: CallbackQuery):
+    s = load_settings()
+    s["getgems_alerts_on"] = not bool(s.get("getgems_alerts_on", True))
+    save_settings(s)
+    await callback.answer("Getgems: " + ("вкл" if s["getgems_alerts_on"] else "выкл"))
     await callback.message.edit_reply_markup(reply_markup=notifs_menu_kb())
 
 

@@ -113,12 +113,25 @@ def _normalize_item(raw: dict) -> dict | None:
 
     image_url = raw.get("image") or (raw.get("imageSizes") or {}).get("352")
 
-    # Прямая ссылка на NFT в getgems
-    if address.startswith("EQf_tg_gift"):
-        # offchain — лучшая ссылка через collection page
+    # Прямая ссылка на конкретный подарок.
+    # Getgems offchain-гифт это телеграм-NFT (Plush Pepe, Durov's Cap, …).
+    # Универсальная рабочая ссылка — t.me/nft/{NameNoSpaces}-{Number}: открывает
+    # тот же подарок и в Telegram, и в браузере через нативный TG NFT-просмотр.
+    # Старый вариант getgems.io/collection/{coll_addr} вёл на список всех лотов
+    # коллекции, а не на конкретный подарок, что ломало UX «открыть подарок».
+    is_offchain_gift = address.startswith("EQf_tg_gift") or (
+        raw.get("kind") == "OffchainNft"
+    )
+    if is_offchain_gift and collection_name and number is not None:
+        name_camel = re.sub(r"\s+", "", collection_name.strip())
+        url = f"https://t.me/nft/{name_camel}-{number}"
+    elif address and not is_offchain_gift:
+        url = f"https://getgems.io/nft/{address}"
+    elif coll_addr:
+        # Последний fallback: коллекция (если нет имени/номера для NFT-ссылки).
         url = f"https://getgems.io/collection/{coll_addr}"
     else:
-        url = f"https://getgems.io/nft/{address}"
+        url = "https://getgems.io"
 
     return {
         "id": uid_seed,
@@ -374,8 +387,9 @@ async def start_getgems_monitor(
                 logger.exception(f"Getgems цикл: {e}")
 
             if eff_interval <= 15:
+                # Fast lane — поджимаем интервал ниже 5s в случае ENV-override.
                 jitter = random.uniform(-1, 1)
-                await asyncio.sleep(max(5, eff_interval + jitter))
+                await asyncio.sleep(max(3, eff_interval + jitter))
             else:
                 jitter = random.uniform(-5, 5)
                 await asyncio.sleep(max(15, eff_interval + jitter))

@@ -1943,6 +1943,7 @@ const MARKETS = [
   { v: 'mrkt', l: '🟣 MRKT' },
   { v: 'portals', l: '🟢 Portals' },
   { v: 'fragment', l: '🔵 Fragment' },
+  { v: 'getgems', l: '💎 Getgems' },
 ];
 
 function avgDiscountPct() {
@@ -1989,6 +1990,7 @@ function renderSettings() {
       ${toggleRow('🟣 MRKT', 'mrkt_alerts_on', s.mrkt_alerts_on)}
       ${toggleRow('🔵 Fragment', 'fragment_alerts_on', s.fragment_alerts_on)}
       ${toggleRow('🟢 Portals', 'portals_alerts_on', s.portals_alerts_on)}
+      ${toggleRow('💎 Getgems', 'getgems_alerts_on', s.getgems_alerts_on !== false)}
       ${stepperRow(t('s_quiet_start'), 'quiet_hours_start', s.quiet_hours_start, 0, 23, 1)}
       ${stepperRow(t('s_quiet_end'), 'quiet_hours_end', s.quiet_hours_end, 0, 23, 1)}
       ${stepperRow(t('s_max_alerts'), 'max_alerts_per_cycle', s.max_alerts_per_cycle, 0, 100, 1,
@@ -2402,7 +2404,7 @@ function resetSettings() {
     const def = {
       max_price_ton: 50, min_price_ton: 0, floor_tolerance_pct: 0, min_discount_pct: 0,
       require_floor: true, monochrome_only: false, max_rarity_pm: 0,
-      notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true,
+      notifications_on: true, mrkt_alerts_on: true, fragment_alerts_on: true, portals_alerts_on: true, getgems_alerts_on: true,
       quiet_hours_start: 0, quiet_hours_end: 0, max_alerts_per_cycle: 0,
       recent_rare_mode: false, recent_rare_pm: 5,
       watchlist_names: [], watchlist_models: [], watchlist_backdrops: [],

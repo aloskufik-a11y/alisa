@@ -303,10 +303,10 @@ async def start_fragment_monitor(interval: int | None = None, sort_orders: list[
             except Exception as e:
                 logger.exception(f"Fragment цикл: {e}")
 
-            # Для fast-lane jitter маленький, чтобы держать ≈10s такт.
+            # Для fast-lane jitter маленький, чтобы держать ~5s такт.
             if eff_interval <= 15:
                 jitter = random.uniform(-1, 1)
-                await asyncio.sleep(max(5, eff_interval + jitter))
+                await asyncio.sleep(max(3, eff_interval + jitter))
             else:
                 jitter = random.uniform(-5, 5)
                 await asyncio.sleep(max(15, eff_interval + jitter))

@@ -34,6 +34,7 @@ DEFAULT_SETTINGS: dict = {
     "mrkt_alerts_on": True,
     "fragment_alerts_on": True,
     "portals_alerts_on": True,
+    "getgems_alerts_on": True,
 
     # Тихие часы (UTC). 0-0 = выключено. Пример: 22-7 = тихо с 22:00 до 07:00 UTC.
     "quiet_hours_start": 0,

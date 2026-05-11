@@ -59,10 +59,11 @@ GETGEMS_API_KEY: str = _env_str("GETGEMS_API_KEY", "")
 
 # Fast-lane поллинг — только 1-я страница (где появляются новые лоты), очень частое.
 # Цель: latency «лот появился → алерт» ≤ FAST_POLL_INTERVAL/2 секунд (avg).
-# Один HTTP-запрос на цикл = ~7-10 req/min на market — далеко ниже rate-limit
-# (MRKT/Portals переваривают 2 req/sec без 429, Fragment.com ставит лимит на ~30 req/min).
-# Снижение default 10→8 даёт avg latency ~4с вместо ~5с, без риска 429.
-FAST_POLL_INTERVAL: int = _env_int("FAST_POLL_INTERVAL", 8)
+# Один HTTP-запрос на цикл = ~12 req/min на market — далеко ниже rate-limit
+# (MRKT/Portals переваривают 2 req/sec без 429, Fragment.com — ~30 req/min,
+# Getgems — 80 req/min). Снижение 8→5 даёт avg latency ~2.5с вместо ~4с.
+# Если api начнёт возвращать 429 на 5с — поднимите FAST_POLL_INTERVAL env-vars'ом.
+FAST_POLL_INTERVAL: int = _env_int("FAST_POLL_INTERVAL", 5)
 FAST_POLL_PAGES: int = _env_int("FAST_POLL_PAGES", 1)
 
 # Параллельная отправка алертов в Telegram. Сем=8 безопасно ниже лимита 30/sec

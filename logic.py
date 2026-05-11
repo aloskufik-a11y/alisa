@@ -939,6 +939,7 @@ DEFAULT_S: dict = {
     "mrkt_alerts_on": True,
     "fragment_alerts_on": True,
     "portals_alerts_on": True,
+    "getgems_alerts_on": True,
 
     # ── Тихие часы (UTC). 0-0 = выключено. Пример: 22-7 = с 22:00 до 07:00 UTC ─
     "quiet_hours_start": 0,
@@ -1085,6 +1086,7 @@ def is_profitable(gift_data: dict, market: str = "") -> bool:
         "mrkt": "mrkt_alerts_on",
         "fragment": "fragment_alerts_on",
         "portals": "portals_alerts_on",
+        "getgems": "getgems_alerts_on",
     }.get(market_norm)
     if per_market_key and not bool(s.get(per_market_key, True)):
         return False

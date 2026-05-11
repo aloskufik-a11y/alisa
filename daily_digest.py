@@ -112,7 +112,12 @@ def format_digest_message(stats: dict[str, Any]) -> str:
 
     by_market = stats.get("by_market", {})
     if by_market:
-        market_emoji = {"mrkt": "🏪", "portals": "🌀", "fragment": "📜"}
+        market_emoji = {
+            "mrkt": "🏪",
+            "portals": "🌀",
+            "fragment": "📜",
+            "getgems": "💎",
+        }
         parts = [
             f"{market_emoji.get(m, '•')} {m.upper()}: {c}"
             for m, c in sorted(by_market.items(), key=lambda x: -x[1])

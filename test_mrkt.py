@@ -495,6 +495,20 @@ try:
     test("is_profitable: tg:channel префикс пропускает фильтр",
          is_profitable({"price": 5.0, "floor_price": 10.0}, "tg:portals_market"))
 
+    # === Per-market alerts toggle (PR: добавлен getgems_alerts_on) ===
+    s = DEFAULTS.copy()
+    s["filter_markets"] = []
+    s["getgems_alerts_on"] = False
+    settings_store.save_settings(s)
+    test("is_profitable: getgems_alerts_on=False → лот getgems отбрасывается",
+         not is_profitable({"price": 5.0, "floor_price": 10.0}, "getgems"))
+    test("is_profitable: getgems_alerts_on=False не влияет на mrkt",
+         is_profitable({"price": 5.0, "floor_price": 10.0}, "mrkt"))
+    s["getgems_alerts_on"] = True
+    settings_store.save_settings(s)
+    test("is_profitable: getgems_alerts_on=True → лот getgems проходит",
+         is_profitable({"price": 5.0, "floor_price": 10.0}, "getgems"))
+
     # === Rarity filter ===
     s = DEFAULTS.copy(); s["filter_rarity"] = ["Legendary"]
     settings_store.save_settings(s)
@@ -639,6 +653,29 @@ try:
     test("Label fragment", "Fragment" in get_market_label("fragment"))
     test("Label portals", "GetGems" in get_market_label("portals") or
                             "Portals" in get_market_label("portals"))
+
+    # === Getgems buttons (PR: fix open-gift link) ===
+    # Offchain TG-gift: address начинается с EQf_tg_gift → главная кнопка
+    # должна вести на конкретный подарок (t.me/nft/...), а НЕ на коллекцию.
+    btns_g = build_market_buttons(
+        "getgems",
+        "EQf_tg_gift_______________________xyz",
+        slug="EQDcoll",
+        name="Vice Cream",
+        number="186572",
+    )
+    test("Getgems offchain: первая кнопка — t.me/nft (открывает подарок)",
+         btns_g and btns_g[0]["url"] == "https://t.me/nft/ViceCream-186572"
+         and "подарок" in btns_g[0]["text"].lower())
+    test("Getgems offchain: вторая кнопка — коллекция (fallback)",
+         len(btns_g) >= 2 and "getgems.io/collection/" in btns_g[1]["url"])
+    # Onchain (адрес не EQf_tg_gift) → можно открыть сам NFT в Getgems
+    btns_g2 = build_market_buttons(
+        "getgems", "EQABC123real_nft_addr", name="Some NFT", number="42",
+    )
+    test("Getgems onchain: t.me/nft + прямая ссылка на NFT",
+         btns_g2 and btns_g2[0]["url"] == "https://t.me/nft/SomeNFT-42"
+         and any("getgems.io/nft/" in b["url"] for b in btns_g2))
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
@@ -1331,8 +1368,16 @@ try:
          and item["rarities_pm"]["backdrop"] == 15.0
          and abs(item["rarities_pm"]["symbol"] - 4.0) < 1e-6)
     test("getgems: market='getgems'", item["market"] == "getgems")
-    test("getgems: url ведёт на коллекцию для offchain",
-         "getgems.io/collection/" in (item.get("url") or ""))
+    # URL для offchain TG-gift'а — t.me/nft/{NameNoSpaces}-{number}.
+    # Это универсальная ссылка которая открывает конкретный подарок и в
+    # Telegram-клиенте, и в браузере. Старый вариант getgems.io/collection/{addr}
+    # вёл на список лотов коллекции (баг — пользователь не открывал подарок).
+    test("getgems: url ведёт на t.me/nft/{Name}-{Number} для offchain",
+         item.get("url") == "https://t.me/nft/ViceCream-186572")
+    # Sanity-check: имя без пробелов и номер совпадают
+    test("getgems: offchain url содержит ViceCream и 186572",
+         "ViceCream" in (item.get("url") or "")
+         and "186572" in (item.get("url") or ""))
 
     # USDT — пропускаем (Stars/USDT/auction → None)
     usdt = dict(base)

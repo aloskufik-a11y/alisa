@@ -256,12 +256,24 @@ def build_market_buttons(
             buttons.append({"text": "🎁 Telegram NFT", "url": nft_link})
 
     elif market == "getgems":
-        # Getgems offchain-гифт. address передаётся как gift_id, slug — это
-        # collectionAddress.
-        getgems_link = build_getgems_gift_link(gift_id, slug)
-        buttons.append({"text": "💎 Открыть в Getgems", "url": getgems_link})
+        # Getgems offchain-гифт это TG-NFT (Plush Pepe и т.п.). Универсальная
+        # ссылка которая открывает КОНКРЕТНЫЙ подарок — t.me/nft/{Name}-{Number}.
+        # Делаем её главной кнопкой. Старая Getgems URL ведёт на коллекцию
+        # (а не на сам подарок) — оставляем как вспомогательную, только если
+        # она реально указывает на NFT (т.е. address не offchain-плейсхолдер).
         nft_link = build_telegram_nft_link(name, number)
         if nft_link:
-            buttons.append({"text": "🎁 Telegram NFT", "url": nft_link})
+            buttons.append({"text": "🎁 Открыть подарок", "url": nft_link})
+        is_offchain = gift_id.startswith("EQf_tg_gift")
+        if not is_offchain and gift_id:
+            buttons.append({
+                "text": "💎 Getgems",
+                "url": f"https://getgems.io/nft/{gift_id}",
+            })
+        elif slug:
+            buttons.append({
+                "text": "📋 Коллекция в Getgems",
+                "url": f"https://getgems.io/collection/{slug}",
+            })
 
     return buttons

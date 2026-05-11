@@ -457,6 +457,7 @@ _DEFAULT_SETTINGS = {
     "mrkt_alerts_on": True,
     "fragment_alerts_on": True,
     "portals_alerts_on": True,
+    "getgems_alerts_on": True,
     "quiet_hours_start": 0,
     "quiet_hours_end": 0,
     "max_alerts_per_cycle": 0,
