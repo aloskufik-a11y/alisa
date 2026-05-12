@@ -959,6 +959,7 @@ const I18N = {
     network_err: '❌ Ошибка сети', error: '❌ Ошибка',
     reset_confirm: 'Сбросить все настройки к значениям по умолчанию?',
     open_in: 'Открыть в',
+    open_gift: 'Открыть подарок',
     sec: 'сек', min: 'мин', hour: 'ч', day: 'д',
     favs_empty: 'Избранное пусто',
     favs_empty_sub: 'Нажми ⭐ на карточке, чтобы сохранить лот.',
@@ -1049,6 +1050,7 @@ const I18N = {
     network_err: '❌ Network error', error: '❌ Error',
     reset_confirm: 'Reset all settings to defaults?',
     open_in: 'Open in',
+    open_gift: 'Open gift',
     sec: 's', min: 'm', hour: 'h', day: 'd',
     favs_empty: 'No favorites yet',
     favs_empty_sub: 'Tap ⭐ on a card to save it.',
@@ -1797,7 +1799,9 @@ let openModal = function(it) {
     <div class="modal-actions">
       ${it.url
         ? `<button class="modal-cta" id="modal-open-cta">
-            🚀 ${t('open_in')} ${(it.market || '').toUpperCase()}
+            ${(it.url || '').startsWith('https://t.me/nft/')
+              ? '🎁 ' + t('open_gift')
+              : '🚀 ' + t('open_in') + ' ' + (it.market || '').toUpperCase()}
           </button>`
         : ''}
       <button class="modal-cta" id="modal-share-cta" style="background:var(--card-h); color:var(--fg)">📤</button>

@@ -261,6 +261,84 @@ async def _emit_floor_drops(market_label: str, drops: dict[str, tuple[float, flo
         logger.exception("send floor-drop alert failed")
 
 
+# ─── Getgems: per-collection min-cache (multi-batch tracker) ────────────────
+#
+# Getgems API не отдаёт авторитетный floor по коллекциям, поэтому копим
+# минимальную цену по collection name через несколько циклов опроса. Это
+# существенно точнее чем `apply_floors` на одном батче из 100 лотов, потому
+# что свежие 100 лотов могут случайно не включать самые дешёвые из коллекций
+# с большим оборотом.
+#
+# Структура: {name: (min_price_ton, observed_at)}. observed_at — момент
+# когда мы ПОСЛЕДНИЙ раз ВИДЕЛИ лот этой коллекции (по любой цене). Это
+# защита от устаревших значений: если 30+ минут не видели коллекцию,
+# floor сбрасывается (старый продан или коллекция мертва).
+
+_GETGEMS_FLOOR_TTL_SEC = 30 * 60  # 30 минут
+_getgems_floors: dict[str, tuple[float, float]] = {}
+_getgems_lock = asyncio.Lock()
+
+
+def getgems_floor(name: str) -> Optional[float]:
+    """Возвращает min-observed price для коллекции, если ещё свежий."""
+    if not name:
+        return None
+    entry = _getgems_floors.get(name)
+    if not entry:
+        return None
+    price, ts = entry
+    if time.time() - ts > _GETGEMS_FLOOR_TTL_SEC:
+        return None
+    return price
+
+
+def update_getgems_floors_from_batch(gifts: list[dict]) -> int:
+    """
+    Обновляет min-price кэш из текущего батча Getgems-лотов.
+    Возвращает количество коллекций, у которых обновился минимум.
+
+    Должен вызываться после каждого fetch (fast+full lane). Безопасно
+    для concurrent вызова — операция чтения dict в Python атомарна, а
+    запись через короткий критический участок. Хотим избежать `await`
+    внутри hot path, поэтому НЕ используем _getgems_lock здесь — мутации
+    одиночные и в худшем случае на гонке мы запишем чуть более высокий
+    минимум, который перетрётся следующим циклом.
+    """
+    if not gifts:
+        return 0
+    now = time.time()
+    updated = 0
+    for g in gifts:
+        if not isinstance(g, dict):
+            continue
+        name = g.get("name")
+        price = g.get("price")
+        if not name or not isinstance(price, (int, float)) or price <= 0:
+            continue
+        cur = _getgems_floors.get(name)
+        if cur is None or price < cur[0]:
+            _getgems_floors[name] = (float(price), now)
+            updated += 1
+        else:
+            # Сбрасываем TTL — мы видели коллекцию, значит она живая.
+            _getgems_floors[name] = (cur[0], now)
+    # Чистим протухшие, чтобы dict не пух
+    if len(_getgems_floors) > 500:
+        cutoff = now - _GETGEMS_FLOOR_TTL_SEC
+        stale = [k for k, (_p, t) in _getgems_floors.items() if t < cutoff]
+        for k in stale:
+            _getgems_floors.pop(k, None)
+    return updated
+
+
+def _getgems_cache_size() -> int:
+    return len(_getgems_floors)
+
+
+def _clear_getgems_floors_for_test() -> None:
+    _getgems_floors.clear()
+
+
 # ─── Применение к лотам ──────────────────────────────────────────────────────
 
 def apply_authoritative_floors(gifts: list[dict], market: str) -> int:
@@ -270,6 +348,7 @@ def apply_authoritative_floors(gifts: list[dict], market: str) -> int:
 
     Для MRKT ключ в кэше — `name` (collectionTitle).
     Для Portals — `short_name` (производный от `name`).
+    Для Getgems — `name` из multi-batch min-кэша.
     """
     if not gifts:
         return 0
@@ -287,6 +366,14 @@ def apply_authoritative_floors(gifts: list[dict], market: str) -> int:
             if not isinstance(g, dict):
                 continue
             f = portals_floor_by_display_name(g.get("name", ""))
+            if f is not None:
+                g["floor_price"] = f
+                n += 1
+    elif market == "getgems":
+        for g in gifts:
+            if not isinstance(g, dict):
+                continue
+            f = getgems_floor(g.get("name", ""))
             if f is not None:
                 g["floor_price"] = f
                 n += 1
