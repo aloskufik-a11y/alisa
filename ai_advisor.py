@@ -24,7 +24,12 @@ v2 фишки (2026-05):
 - Per-task model selection: авто-вердикт идёт на ai_fast_model (llama-3.1-8b-instant
   по дефолту, ~50-150ms), /ai_ask и digest — на основной более умной модели.
 - Response cache: вердикт по re-listing того же лота берётся из памяти (ttl 5 мин).
-- Fallback chain: при ошибке/таймауте основного провайдера — пытаемся резерв.
+- Multi-step fallback chain: primary → тот же провайдер с резервной моделью
+  (разные rate-limit-бакеты!) → внешний fallback провайдер. Это резко снижает
+  вероятность "пустого" вердикта когда одна модель временно забанена/quota.
+- Daily token budget guard: ai_cache.is_over_budget(ai_daily_token_budget) останавливает
+  любые новые LLM-вызовы после исчерпания дневного лимита — кэш продолжает
+  обслуживать, но ничего нового в LLM не уходит.
 - Stats counters: команда /ai_stats показывает hit-rate / по-провайдеру / по-задаче.
 """
 from __future__ import annotations
@@ -261,6 +266,78 @@ def get_fallback_provider(settings: dict) -> Any | None:
     return _build_provider(fb, key, model)
 
 
+def _build_secondary_same_provider(settings: dict, primary: Any) -> Any | None:
+    """«Второй шанс» на том же провайдере, но с другой моделью — это иной
+    rate-limit-бакет на Groq/Gemini, что помогает обойти временный бан/quota
+    одной модели. None — если вторая модель совпадает с первой или провайдер
+    не Groq/Gemini.
+
+    Логика:
+    - primary был "быстрым" (ai_fast_model) → secondary = основная модель.
+    - primary был "полным" → secondary = быстрая модель.
+    """
+    if primary is None:
+        return None
+    provider_name = (settings.get("ai_provider") or "off").lower().strip()
+    primary_model = getattr(primary, "model", "")
+    if provider_name == "groq":
+        key = settings.get("groq_api_key") or ""
+        full = (settings.get("groq_model") or GROQ_MODELS[0]).strip()
+        fast = (settings.get("ai_fast_model") or "llama-3.1-8b-instant").strip()
+        if fast not in GROQ_MODELS:
+            fast = "llama-3.1-8b-instant"
+        secondary_model = full if primary_model == fast else fast
+        if secondary_model == primary_model:
+            return None
+        return _build_provider("groq", key, secondary_model)
+    if provider_name == "gemini":
+        key = settings.get("gemini_api_key") or ""
+        full = (settings.get("gemini_model") or GEMINI_MODELS[0]).strip()
+        fast = (settings.get("ai_fast_model") or "gemini-2.0-flash-lite").strip()
+        if fast not in GEMINI_MODELS:
+            fast = "gemini-2.0-flash-lite"
+        secondary_model = full if primary_model == fast else fast
+        if secondary_model == primary_model:
+            return None
+        return _build_provider("gemini", key, secondary_model)
+    return None
+
+
+def _provider_chain(primary: Any, fallback: Any | None,
+                    settings: dict | None) -> list[Any]:
+    """Дедублированная цепочка primary → same-provider-other-model → fallback.
+    Провайдеры с одинаковой парой (name, model) считаются дубликатами."""
+    if primary is None:
+        return []
+    chain: list[Any] = [primary]
+    seen: set[tuple[str, str]] = {
+        (getattr(primary, "name", ""), getattr(primary, "model", ""))
+    }
+    secondary = (
+        _build_secondary_same_provider(settings, primary) if settings else None
+    )
+    if secondary is not None:
+        sig = (getattr(secondary, "name", ""),
+               getattr(secondary, "model", ""))
+        if sig not in seen:
+            chain.append(secondary)
+            seen.add(sig)
+    if fallback is not None:
+        sig = (getattr(fallback, "name", ""),
+               getattr(fallback, "model", ""))
+        if sig not in seen:
+            chain.append(fallback)
+            seen.add(sig)
+    return chain
+
+
+def _budget_from_settings(settings: dict | None) -> int:
+    try:
+        return int((settings or {}).get("ai_daily_token_budget") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Prompts
 # ──────────────────────────────────────────────────────────────────────────────
@@ -426,32 +503,79 @@ def _format_digest_for_ai(stats: dict) -> str:
 # Public API
 # ──────────────────────────────────────────────────────────────────────────────
 
+async def _chat_with_chain(chain: list[Any],
+                           system: str, user: str, *,
+                           max_tokens: int = 180,
+                           temperature: float = 0.7,
+                           task: str = "auto",
+                           daily_budget_tokens: int = 0,
+                           ) -> tuple[str, str]:
+    """Итерирует по цепочке провайдеров: первый непустой ответ — возвращает.
+
+    Частый случай в проде: 429/quota на Groq llama-3.3-70b — следующим прыжком
+    идём на Groq llama-3.1-8b (другой rate-limit бакет), и вердикт всё равно
+    выдаётся. Дальше — Gemini fallback, если настроен.
+
+    daily_budget_tokens: дневной лимит в токенах (0 — без лимита). Если
+    уже выбрали — возвращаем ("", "budget") без вызовов.
+
+    Возвращает (text, used_provider_name).
+    """
+    if not chain:
+        ai_cache.record_error()
+        return "", ""
+    if ai_cache.is_over_budget(daily_budget_tokens):
+        ai_cache.record_budget_block()
+        logger.info(
+            "AI daily budget exhausted (≥ %s tokens used today); skipping LLM call",
+            daily_budget_tokens,
+        )
+        return "", "budget"
+    last_name = getattr(chain[0], "name", "")
+    for idx, provider in enumerate(chain):
+        text = await provider.chat(system, user, max_tokens=max_tokens,
+                                   temperature=temperature)
+        last_name = getattr(provider, "name", "")
+        if text:
+            ai_cache.record_miss(
+                provider.name, len(system) + len(user), len(text),
+            )
+            if idx > 0:
+                # Любой успех не с первой попытки — фиксируем факт fallback’а.
+                ai_cache.record_fallback()
+                logger.info(
+                    "AI fallback hit on step %d (%s/%s)",
+                    idx,
+                    getattr(provider, "name", "?"),
+                    getattr(provider, "model", "?"),
+                )
+            return text, provider.name
+    ai_cache.record_error()
+    return "", last_name
+
+
 async def _chat_with_fallback(primary: Any, fallback: Any | None,
                               system: str, user: str, *,
                               max_tokens: int = 180,
                               temperature: float = 0.7,
-                              task: str = "auto") -> tuple[str, str]:
-    """Зовёт primary, при пустом ответе пытается fallback.
-    Возвращает (text, used_provider_name)."""
-    text = await primary.chat(system, user, max_tokens=max_tokens,
-                              temperature=temperature)
-    if text:
-        ai_cache.record_miss(primary.name, len(system) + len(user), len(text))
-        return text, primary.name
-    # Fallback при пустом ответе. Проверяем что fallback != primary полностью
-    # (имя+модель), иначе тот же неработающий вызов повторим.
-    if fallback is not None and (
-        fallback.name != primary.name
-        or getattr(fallback, "model", "") != getattr(primary, "model", "")
-    ):
-        ai_cache.record_fallback()
-        text = await fallback.chat(system, user, max_tokens=max_tokens,
-                                   temperature=temperature)
-        if text:
-            ai_cache.record_miss(fallback.name, len(system) + len(user), len(text))
-            return text, fallback.name
-    ai_cache.record_error()
-    return "", primary.name
+                              task: str = "auto",
+                              daily_budget_tokens: int = 0,
+                              settings: dict | None = None,
+                              ) -> tuple[str, str]:
+    """Обёртка над _chat_with_chain: собирает цепочку primary →
+    same-provider-other-model (если settings переданы) → fallback.
+
+    Сохранена для совместимости с тестами/легаси-кодом.
+    """
+    if primary is None:
+        ai_cache.record_error()
+        return "", ""
+    chain = _provider_chain(primary, fallback, settings)
+    return await _chat_with_chain(
+        chain, system, user,
+        max_tokens=max_tokens, temperature=temperature, task=task,
+        daily_budget_tokens=daily_budget_tokens,
+    )
 
 
 async def analyze_gift(provider: Any, gift: dict, market: str,
@@ -483,6 +607,8 @@ async def analyze_gift(provider: Any, gift: dict, market: str,
     text, _ = await _chat_with_fallback(
         provider, fallback, system, user_prompt,
         max_tokens=180, temperature=0.6, task=task,
+        daily_budget_tokens=_budget_from_settings(s),
+        settings=s,
     )
     if text:
         ai_cache.put(sig, text)
@@ -490,7 +616,8 @@ async def analyze_gift(provider: Any, gift: dict, market: str,
 
 
 async def analyze_daily(provider: Any, digest_stats: dict,
-                        *, fallback: Any | None = None) -> str:
+                        *, fallback: Any | None = None,
+                        settings: dict | None = None) -> str:
     """Брифинг по сводке за сутки, или ''."""
     if provider is None:
         return ""
@@ -499,12 +626,15 @@ async def analyze_daily(provider: Any, digest_stats: dict,
     text, _ = await _chat_with_fallback(
         provider, fallback, DIGEST_SUMMARY_SYSTEM, user_prompt,
         max_tokens=350, temperature=0.7, task="digest",
+        daily_budget_tokens=_budget_from_settings(settings),
+        settings=settings,
     )
     return text
 
 
 async def free_chat(provider: Any, question: str,
-                    *, fallback: Any | None = None) -> str:
+                    *, fallback: Any | None = None,
+                    settings: dict | None = None) -> str:
     """Свободный диалог. Используется командой /ai_ask."""
     if provider is None:
         return ""
@@ -515,6 +645,8 @@ async def free_chat(provider: Any, question: str,
     text, _ = await _chat_with_fallback(
         provider, fallback, FREE_CHAT_SYSTEM, q[:1000],
         max_tokens=400, temperature=0.7, task="chat",
+        daily_budget_tokens=_budget_from_settings(settings),
+        settings=settings,
     )
     return text
 

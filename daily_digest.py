@@ -177,7 +177,9 @@ async def send_digest_now(bot, user_id: int, window_hours: int = 24) -> bool:
                 provider = get_active_provider(s)
                 fallback = get_fallback_provider(s)
                 if provider is not None:
-                    ai_text = await analyze_daily(provider, stats, fallback=fallback)
+                    ai_text = await analyze_daily(
+                        provider, stats, fallback=fallback, settings=s,
+                    )
                     if ai_text:
                         provider_emoji = {"groq": "⚡", "gemini": "✨"}.get(
                             (s.get("ai_provider") or "").lower(), "🤖"

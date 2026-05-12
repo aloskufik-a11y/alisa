@@ -405,7 +405,7 @@ async def cmd_ai_ask(message: types.Message):
         return
     question = parts[1].strip()[:1000]
     placeholder = await message.answer(f"🤖 Думаю над вопросом…")
-    answer = await free_chat(provider, question, fallback=fallback)
+    answer = await free_chat(provider, question, fallback=fallback, settings=s)
     if not answer:
         await placeholder.edit_text(
             "❌ AI не ответил. Возможно лимит токенов или ошибка ключа. "
@@ -433,6 +433,7 @@ async def cmd_ai_stats(message: types.Message):
     miss = st.get("cache_miss", 0)
     fallbacks = st.get("fallbacks", 0)
     errors = st.get("errors", 0)
+    budget_blocks = st.get("budget_blocks", 0)
     hit_rate = (hits / requests * 100.0) if requests else 0.0
     by_prov = st.get("by_provider") or {}
     by_task = st.get("by_task") or {}
@@ -446,6 +447,16 @@ async def cmd_ai_stats(message: types.Message):
     fb_provider = (s.get("ai_fallback_provider") or "off").lower()
     fb_model = (s.get("ai_fallback_model") or "—") if fb_provider != "off" else "—"
     ttl = int(s.get("ai_cache_ttl_sec") or 0)
+    budget = int(s.get("ai_daily_token_budget") or 0)
+    used_today = ai_cache.tokens_used_today()
+    if budget > 0:
+        bpct = min(100, int(used_today / budget * 100)) if used_today else 0
+        budget_line = (
+            f"<b>Бюджет:</b> {used_today}/{budget} токенов ({bpct}%)"
+            + (f" — ⛔ исчерпан, заблокировано {budget_blocks}" if budget_blocks else "")
+        )
+    else:
+        budget_line = f"<b>Бюджет:</b> без лимита (потрачено {used_today} токенов сегодня)"
 
     by_prov_lines = ", ".join(f"{k}={v}" for k, v in by_prov.items()) or "—"
     by_task_lines = ", ".join(f"{k}={v}" for k, v in by_task.items()) or "—"
@@ -461,10 +472,12 @@ async def cmd_ai_stats(message: types.Message):
         f"  • из кэша: {hits} ({hit_rate:.0f}%)\n"
         f"  • в LLM: {miss}\n"
         f"  • fallback использован: {fallbacks}\n"
-        f"  • ошибок (пустой ответ от обоих): {errors}\n\n"
+        f"  • ошибок (пустой ответ от обоих): {errors}\n"
+        f"  • заблокировано бюджетом: {budget_blocks}\n\n"
         f"<b>По провайдерам:</b> {by_prov_lines}\n"
         f"<b>По задачам:</b> {by_task_lines}\n\n"
         f"<b>Оценка токенов:</b> in≈{in_tokens}, out≈{out_tokens}\n"
+        f"{budget_line}\n"
         f"<b>Размер кэша:</b> {cache_size} записей"
     )
     await message.answer(text, parse_mode="HTML")
