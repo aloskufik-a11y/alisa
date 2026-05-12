@@ -12,7 +12,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    branch: devin/1777733662-fix-parsing-and-monitoring
+    branch: deploy/mini-app-overhaul-strict-floor
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
@@ -49,7 +49,7 @@ services:
     runtime: docker
     plan: free
     region: frankfurt
-    branch: devin/1777975321-mini-app-overhaul
+    branch: deploy/mini-app-overhaul-strict-floor
     dockerfilePath: ./webapp_backend/Dockerfile
     dockerContext: .
     healthCheckPath: /api/health
