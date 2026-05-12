@@ -114,6 +114,9 @@ DEFAULT_SETTINGS: dict = {
     # (имя+model+backdrop+цена-bucket+floor-bucket) — re-listings того же лота
     # не жгут токены лишний раз.
     "ai_cache_ttl_sec":         300,
+    # Дневной бюджет токенов (in+out) на ВСЕ LLM-вызовы. 0 = без лимита.
+    # Сбрасывается автоматически при смене UTC-даты. См. ai_cache.is_over_budget.
+    "ai_daily_token_budget":    0,
 }
 
 # Ключи которые больше не нужны (удаляем при миграции)

@@ -1229,6 +1229,52 @@ try:
     ai_cache.reset_cache()
     ai_cache.reset_stats()
 
+    # ── Daily token budget tracker (v2) ──
+    # tokens_used_today начинается с 0 после reset.
+    test("budget: tokens_used_today начинает с 0",
+         ai_cache.tokens_used_today() == 0)
+
+    # record_miss с заданными chars → копится дневной счётчик.
+    # 1 token ≈ 3 chars, поэтому 300+120 chars = 140 tokens.
+    ai_cache.record_miss("groq", input_chars=300, output_chars=120)
+    used = ai_cache.tokens_used_today()
+    test("budget: record_miss обновил суточный счётчик",
+         used == (300 + 120) // ai_cache.CHARS_PER_TOKEN)
+
+    # is_over_budget при budget=0 (без лимита) — всегда False.
+    test("budget: budget=0 → over=False",
+         ai_cache.is_over_budget(0) is False)
+    # is_over_budget с маленьким budget — True.
+    test("budget: budget=10 (превышен) → over=True",
+         ai_cache.is_over_budget(10) is True)
+    # is_over_budget с большим budget — False.
+    test("budget: budget=10000 (не превышен) → over=False",
+         ai_cache.is_over_budget(10000) is False)
+
+    # get_budget_status snapshot.
+    snap = ai_cache.get_budget_status(1000)
+    test("budget: snapshot.used корректно", snap["used"] == used)
+    test("budget: snapshot.budget = 1000", snap["budget"] == 1000)
+    test("budget: snapshot.remaining = 1000-used",
+         snap["remaining"] == 1000 - used)
+    test("budget: snapshot.over=False для большого budget",
+         snap["over"] is False)
+
+    snap0 = ai_cache.get_budget_status(0)
+    test("budget: budget=0 → remaining=None в snapshot",
+         snap0["remaining"] is None and snap0["over"] is False)
+
+    # record_budget_block инкрементит budget_blocks.
+    ai_cache.reset_stats()
+    ai_cache.record_budget_block()
+    ai_cache.record_budget_block()
+    st2 = ai_cache.get_stats()
+    test("budget: record_budget_block считает заблокированные вызовы",
+         st2.get("budget_blocks", 0) == 2)
+
+    ai_cache.reset_stats()
+    ai_cache.reset_cache()
+
 except Exception as e:
     print(f"  💥 Ошибка: {e}")
     traceback.print_exc()
@@ -1452,6 +1498,78 @@ try:
     item2 = _normalize_item(no_num)
     test("getgems: name без # → number=None, name=полный",
          item2 is not None and item2["number"] is None and item2["name"] == "Plush Pepe")
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+print("\n[20] ai_advisor._chat_with_chain — multi-step fallback + budget guard")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import ai_advisor
+    import ai_cache
+    import asyncio as _asyncio
+
+    class _FakeProvider:
+        def __init__(self, name, model, replies):
+            self.name = name
+            self.model = model
+            self._replies = list(replies)
+            self.calls = 0
+
+        async def chat(self, system, user, max_tokens=180, temperature=0.7):
+            self.calls += 1
+            return self._replies.pop(0) if self._replies else ""
+
+    # ── 1) Primary отвечает — fallback не зовут.
+    ai_cache.reset_stats(); ai_cache.reset_cache()
+    p1 = _FakeProvider("groq", "llama-3.3-70b-versatile", ["BUY conf:8/10 — ok"])
+    p2 = _FakeProvider("groq", "llama-3.1-8b-instant", [])
+    p3 = _FakeProvider("gemini", "gemini-2.0-flash", [])
+    text, name = _asyncio.run(ai_advisor._chat_with_chain([p1, p2, p3], "s", "u"))
+    test("chain: primary success → fallback not invoked",
+         text == "BUY conf:8/10 — ok" and p2.calls == 0 and p3.calls == 0)
+
+    # ── 2) Primary пустой, secondary отвечает.
+    ai_cache.reset_stats(); ai_cache.reset_cache()
+    p1 = _FakeProvider("groq", "llama-3.3-70b-versatile", [""])
+    p2 = _FakeProvider("groq", "llama-3.1-8b-instant", ["HOLD conf:5/10 — wait"])
+    p3 = _FakeProvider("gemini", "gemini-2.0-flash", [])
+    text, name = _asyncio.run(ai_advisor._chat_with_chain([p1, p2, p3], "s", "u"))
+    test("chain: empty primary → secondary used, fallback counter incremented",
+         text == "HOLD conf:5/10 — wait" and p3.calls == 0
+         and ai_cache.get_stats().get("fallbacks") == 1)
+
+    # ── 3) Все провайдеры пустые → errors инкремент.
+    ai_cache.reset_stats(); ai_cache.reset_cache()
+    p1 = _FakeProvider("groq", "m1", [""])
+    p2 = _FakeProvider("groq", "m2", [""])
+    p3 = _FakeProvider("gemini", "m3", [""])
+    text, name = _asyncio.run(ai_advisor._chat_with_chain([p1, p2, p3], "s", "u"))
+    test("chain: все пустые → ошибка зафиксирована",
+         text == "" and ai_cache.get_stats().get("errors") == 1)
+
+    # ── 4) Бюджет исчерпан → ни одного вызова, budget_blocks++.
+    ai_cache.reset_stats(); ai_cache.reset_cache()
+    ai_cache.record_miss("groq", input_chars=3000, output_chars=0)  # ≈ 1000 tok
+    p1 = _FakeProvider("groq", "m1", ["should-not-call"])
+    text, name = _asyncio.run(ai_advisor._chat_with_chain(
+        [p1], "s", "u", daily_budget_tokens=500,
+    ))
+    test("chain: budget exhausted → LLM не вызывается",
+         text == "" and name == "budget" and p1.calls == 0
+         and ai_cache.get_stats().get("budget_blocks") == 1)
+
+    # ── 5) _provider_chain дедуплицирует primary == fallback.
+    ai_cache.reset_stats(); ai_cache.reset_cache()
+    same1 = _FakeProvider("groq", "llama-3.3-70b-versatile", [""])
+    same2 = _FakeProvider("groq", "llama-3.3-70b-versatile", [""])
+    chain = ai_advisor._provider_chain(same1, same2, settings=None)
+    test("chain: дубль (groq/same model) отсечён", len(chain) == 1)
+
+    ai_cache.reset_stats(); ai_cache.reset_cache()
 
 except Exception as e:
     print(f"  💥 Ошибка: {e}")

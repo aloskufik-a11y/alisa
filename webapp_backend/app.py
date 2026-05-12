@@ -439,6 +439,29 @@ async def settings():
     return {"ok": True, "settings": _pushed_settings or _DEFAULT_SETTINGS}
 
 
+@app.get("/api/ai/stats")
+async def ai_stats():
+    """Снапшот статистики AI: запросы, hit-rate, токены за сутки и бюджет.
+
+    Используется Mini App'ом, чтобы рисовать budget-полоску и числовые метрики
+    без необходимости открывать команду /ai_stats в боте.
+    """
+    try:
+        import ai_cache  # noqa: WPS433 — локальный импорт чтобы не ронять app при отсутствии модуля
+    except Exception:
+        return {"ok": False, "error": "ai_cache unavailable"}
+    s = _pushed_settings or _DEFAULT_SETTINGS
+    budget = int(s.get("ai_daily_token_budget") or 0)
+    snap = ai_cache.get_stats()
+    snap["budget"] = ai_cache.get_budget_status(budget)
+    snap["primary_provider"] = (s.get("ai_provider") or "off").lower()
+    snap["primary_model"] = s.get(f"{snap['primary_provider']}_model") or ""
+    snap["fast_model"] = s.get("ai_fast_model") or ""
+    snap["fallback_provider"] = (s.get("ai_fallback_provider") or "off").lower()
+    snap["fallback_model"] = s.get("ai_fallback_model") or ""
+    return {"ok": True, "stats": snap}
+
+
 _DEFAULT_SETTINGS = {
     "max_price_ton": 50.0,
     "min_price_ton": 0.0,
@@ -485,6 +508,13 @@ _DEFAULT_SETTINGS = {
     "ai_alerts_min_discount_pct": 10.0,
     "ai_persona": "balanced",
     "ai_custom_prompt": "",
+    # AI v2 — multi-model fallback chain + daily token budget.
+    "ai_fast_model": "llama-3.1-8b-instant",
+    "ai_fallback_provider": "off",
+    "ai_fallback_api_key": "",
+    "ai_fallback_model": "",
+    "ai_cache_ttl_sec": 300,
+    "ai_daily_token_budget": 0,
 }
 
 

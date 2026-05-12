@@ -340,15 +340,27 @@
     display: flex; align-items: baseline; gap: 6px;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .title { font-size: 15.5px; font-weight: 600; line-height: 1.2;
+  .title { font-size: 15.5px; font-weight: 600; line-height: 1.25;
+           letter-spacing: -.005em;
            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .num { color: var(--fg-dim); font-weight: 500; font-size: 13.5px; }
-  .meta { font-size: 12.5px; color: var(--fg-dim);
+  .meta { font-size: 12.5px; color: var(--fg-dim); line-height: 1.35;
           overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .price-row { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; }
-  .price { font-size: 17px; font-weight: 700; color: var(--fg); letter-spacing: -.01em; }
-  .price-sm { font-size: 13px; color: var(--fg-dim); text-decoration: line-through; }
-  .floor { font-size: 12.5px; color: var(--fg-dim); }
+  .price-row { display: flex; gap: 6px 10px; align-items: baseline; flex-wrap: wrap; }
+  .price { font-size: 17px; font-weight: 700; color: var(--fg);
+           letter-spacing: -.015em; font-variant-numeric: tabular-nums; }
+  .price-sm { font-size: 13px; color: var(--fg-dim); text-decoration: line-through;
+              text-decoration-thickness: 1px;
+              text-decoration-color: rgba(255,255,255,.35);
+              font-variant-numeric: tabular-nums; }
+  html[data-theme="light"] .price-sm { text-decoration-color: rgba(0,0,0,.35); }
+  /* Floor label inside the strike-through line stays readable. */
+  .price-sm strong { color: var(--fg); font-weight: 600; }
+  .floor { font-size: 12.5px; color: var(--fg-dim); font-variant-numeric: tabular-nums; }
+  /* Highlight "Floor N" so it reads as a single unit and not a generic stat. */
+  .floor strong { color: var(--fg); font-weight: 600; }
+  .floor.below { color: var(--good); }
+  .floor.below strong { color: var(--good); }
   .badges { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
   .badge {
     display: inline-flex; align-items: center; gap: 3px;
@@ -700,9 +712,12 @@
   .fab-top.show { display: flex; opacity: 1; }
   .fab-top:active { transform: scale(.9); }
 
-  /* Favorites heart on cards */
-  .fav-btn {
-    position: absolute; top: 8px; right: 8px;
+  /* Card overlay buttons: favorites heart + watchlist eye.
+     Use a vertical stack so they don't fight for the same corner on
+     narrow phones. fav-btn is the visual baseline; watch-btn sits
+     8px below it. */
+  .fav-btn, .watch-btn {
+    position: absolute; right: 8px;
     width: 30px; height: 30px; border-radius: 50%;
     background: rgba(0,0,0,.35); color: rgba(255,255,255,.9);
     border: none; cursor: pointer; font-size: 14px;
@@ -710,10 +725,13 @@
     transition: background .15s, transform .12s, color .15s;
     backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   }
-  html[data-theme="light"] .fav-btn { background: rgba(255,255,255,.6); color: rgba(17,22,30,.7); }
-  .fav-btn:active { transform: scale(.85); }
+  .fav-btn { top: 8px; }
+  .watch-btn { top: 46px; font-size: 15px; }
+  html[data-theme="light"] .fav-btn,
+  html[data-theme="light"] .watch-btn { background: rgba(255,255,255,.6); color: rgba(17,22,30,.7); }
+  .fav-btn:active, .watch-btn:active { transform: scale(.85); }
   .fav-btn.on { background: rgba(255,80,120,.92); color: #fff; }
-  .fav-btn.on:active { transform: scale(.85); }
+  .watch-btn.on { background: rgba(64,160,255,.92); color: #fff; }
 
   /* Compact list view (toggleable) */
   body.view-compact .card { padding: 8px 10px; gap: 10px; }
@@ -722,7 +740,25 @@
   body.view-compact .meta { font-size: 11.5px; }
   body.view-compact .price { font-size: 14.5px; }
   body.view-compact .badges { display: none; }
-  body.view-compact .fav-btn { width: 26px; height: 26px; font-size: 12px; }
+  body.view-compact .fav-btn,
+  body.view-compact .watch-btn { width: 26px; height: 26px; font-size: 12px; }
+  body.view-compact .watch-btn { top: 40px; }
+
+  /* AI daily budget bar — live indicator on the AI settings section. */
+  .ai-budget-bar {
+    position: relative; width: 100%; height: 8px;
+    background: rgba(255,255,255,.06); border-radius: 4px;
+    overflow: hidden; margin-top: 6px;
+  }
+  html[data-theme="light"] .ai-budget-bar { background: rgba(0,0,0,.08); }
+  .ai-budget-fill {
+    height: 100%; width: 0%; border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent), var(--good));
+    transition: width .35s ease;
+  }
+  .ai-budget-fill.over {
+    background: linear-gradient(90deg, var(--warn), var(--bad));
+  }
 
   /* Sync indicator on settings */
   .sync-banner {
@@ -960,6 +996,14 @@ const I18N = {
     reset_confirm: 'Сбросить все настройки к значениям по умолчанию?',
     open_in: 'Открыть в',
     open_gift: 'Открыть подарок',
+    watch_add: 'В Watchlist',
+    watch_remove: 'Из Watchlist',
+    watchlist_empty: 'Watchlist пуст. Добавьте лот через 👁 на карточке.',
+    watchlist_count: 'Наблюдаем {n} лотов',
+    ai_budget_used: 'Потрачено сегодня',
+    ai_budget_remaining: 'Осталось',
+    ai_budget_over: 'Бюджет исчерпан — новые вердикты отложены до завтра',
+    ai_budget_unlimited: 'Без лимита',
     sec: 'сек', min: 'мин', hour: 'ч', day: 'д',
     favs_empty: 'Избранное пусто',
     favs_empty_sub: 'Нажми ⭐ на карточке, чтобы сохранить лот.',
@@ -1051,6 +1095,14 @@ const I18N = {
     reset_confirm: 'Reset all settings to defaults?',
     open_in: 'Open in',
     open_gift: 'Open gift',
+    watch_add: 'Watch',
+    watch_remove: 'Unwatch',
+    watchlist_empty: 'Watchlist is empty. Tap 👁 on any card to add.',
+    watchlist_count: 'Watching {n} lots',
+    ai_budget_used: 'Used today',
+    ai_budget_remaining: 'Remaining',
+    ai_budget_over: 'Budget exhausted — new verdicts paused until tomorrow',
+    ai_budget_unlimited: 'Unlimited',
     sec: 's', min: 'm', hour: 'h', day: 'd',
     favs_empty: 'No favorites yet',
     favs_empty_sub: 'Tap ⭐ on a card to save it.',
@@ -1389,6 +1441,39 @@ async function loadSettings() {
   }
 }
 
+// Live AI budget snapshot — renders into the budget bar on settings tab.
+// Silent fail: if /api/ai/stats isn't reachable we just leave the placeholder.
+async function refreshAiBudget() {
+  const hint = document.getElementById('ai-budget-hint');
+  const fill = document.getElementById('ai-budget-fill');
+  if (!hint || !fill) return;
+  try {
+    const r = await fetch(BACKEND + '/api/ai/stats');
+    const data = await r.json();
+    if (!data?.ok) {
+      hint.textContent = '—';
+      return;
+    }
+    const b = data.stats?.budget || {};
+    const used = b.used ?? 0;
+    const budget = b.budget ?? 0;
+    if (budget > 0) {
+      const pct = Math.min(100, Math.round(used / budget * 100));
+      fill.style.width = pct + '%';
+      fill.classList.toggle('over', !!b.over);
+      hint.textContent = b.over
+        ? `${used}/${budget} • ${t('ai_budget_over')}`
+        : `${t('ai_budget_used')}: ${used}/${budget} (${pct}%)`;
+    } else {
+      fill.style.width = '0%';
+      fill.classList.remove('over');
+      hint.textContent = `${t('ai_budget_unlimited')} • ${used} tok`;
+    }
+  } catch (e) {
+    hint.textContent = '—';
+  }
+}
+
 function applyFilters() {
   const q = state.search.toLowerCase().trim();
   const flags = state.flags;
@@ -1451,10 +1536,12 @@ function favKey(it) {
 
 function itemKey(it) {
   // Detect any visible change → triggers re-render of that single card.
-  // Включаем favorite-state, чтобы heart перерисовывался без полного DOM-rebuild.
+  // Включаем favorite + watchlist state, чтобы overlay-кнопки перерисовывались
+  // без полного DOM-rebuild.
   return [
     it.id, it.price, it.floor_price, it.ts, it.market,
-    state.favorites.has(favKey(it)) ? 'F' : '_'
+    state.favorites.has(favKey(it)) ? 'F' : '_',
+    isWatchlisted(it) ? 'W' : '_'
   ].join('|');
 }
 
@@ -1646,6 +1733,20 @@ function card(it) {
   });
   el.appendChild(favBtn);
 
+  // 👁 Watchlist eye — single-tap toggles gift name in/out of watchlist_names.
+  if ((it.name || '').trim()) {
+    const watchBtn = document.createElement('button');
+    watchBtn.className = 'watch-btn' + (isWatchlisted(it) ? ' on' : '');
+    watchBtn.type = 'button';
+    watchBtn.textContent = '👁';
+    watchBtn.title = isWatchlisted(it) ? 'In watchlist' : 'Add to watchlist';
+    watchBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      toggleWatchlistName(it, watchBtn);
+    });
+    el.appendChild(watchBtn);
+  }
+
   const info = document.createElement('div');
   info.className = 'info';
 
@@ -1669,17 +1770,18 @@ function card(it) {
   const floor = it.floor_price ?? it.xfloor;
   if (floor && floor !== it.price) {
     if (floor > it.price) {
-      // Дисконт: показываем floor зачёркнутым + бейдж экономии
+      // Дисконт: показываем floor зачёркнутым + бейдж экономии.
+      // <strong>Floor</strong> — слово, читается как ярлык; число рядом.
       priceRow.innerHTML +=
-        `<span class="price-sm">${fmtPrice(floor)}</span>`;
+        `<span class="price-sm" title="Floor"><strong>Floor</strong> ${fmtPrice(floor)}</span>`;
       if (dp >= 1) {
         priceRow.innerHTML += `<span class="badge good">−${dp.toFixed(1)}%</span>`;
       }
     } else {
-      // Цена выше floor — показываем «floor X.XX» подсказкой
+      // Цена выше floor — показываем «Floor X.XX» подсказкой.
       const overPct = ((it.price - floor) / floor) * 100;
       priceRow.innerHTML +=
-        `<span class="floor">floor ${fmtPrice(floor)}</span>`;
+        `<span class="floor"><strong>Floor</strong> ${fmtPrice(floor)}</span>`;
       if (overPct >= 1) {
         priceRow.innerHTML +=
           `<span class="badge bad" title="Выше флора">+${overPct.toFixed(1)}%</span>`;
@@ -1804,6 +1906,15 @@ let openModal = function(it) {
               : '🚀 ' + t('open_in') + ' ' + (it.market || '').toUpperCase()}
           </button>`
         : ''}
+      ${(it.name || '').trim()
+        ? `<button class="modal-cta watch-cta${isWatchlisted(it) ? ' on' : ''}"
+                   id="modal-watch-cta"
+                   style="background:var(--card-h); color:var(--fg)">
+             ${isWatchlisted(it)
+               ? '🙈 ' + (t('watch_remove') || 'Из Watchlist')
+               : '👁 ' + (t('watch_add') || 'В Watchlist')}
+           </button>`
+        : ''}
       <button class="modal-cta" id="modal-share-cta" style="background:var(--card-h); color:var(--fg)">📤</button>
       <button class="modal-cta" id="modal-copy-cta" style="background:var(--card-h); color:var(--fg)">📋</button>
     </div>
@@ -1813,6 +1924,10 @@ let openModal = function(it) {
   if (it.url) {
     $('#modal-open-cta')?.addEventListener('click', () => openLink(it.url, it.market));
   }
+  $('#modal-watch-cta')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    toggleWatchlistName(it, $('#modal-watch-cta'));
+  });
   $('#modal-share-cta')?.addEventListener('click', () => shareItem(it));
   $('#modal-copy-cta')?.addEventListener('click', () => copyItemLink(it));
 
@@ -1911,6 +2026,74 @@ function toggleFavorite(it) {
   LS.set('favorites', [...state.favorites]);
   // Если активен фильтр "избранное" — сразу пересчитываем ленту.
   if (state.flags.has('favorites')) renderAll();
+}
+
+// ──────────────────────────────────────────────────────────
+//  Watchlist (gift names) — one-tap toggle from card / modal.
+//  POST /api/settings { settings: { watchlist_names: [...] } }
+//  shares the same diff endpoint as the settings page.
+// ──────────────────────────────────────────────────────────
+function watchKey(it) {
+  return (it?.name || '').trim().toLowerCase();
+}
+
+function isWatchlisted(it) {
+  const wl = (state.settings && state.settings.watchlist_names) || [];
+  const n = watchKey(it);
+  if (!n) return false;
+  return wl.some(x => String(x).trim().toLowerCase() === n);
+}
+
+async function toggleWatchlistName(it, btn) {
+  const name = (it?.name || '').trim();
+  if (!name) return;
+  if (!state.settings) {
+    showToast(t('network_err'));
+    return;
+  }
+  const cur = Array.isArray(state.settings.watchlist_names)
+    ? state.settings.watchlist_names.slice()
+    : [];
+  const ix = cur.findIndex(
+    x => String(x).trim().toLowerCase() === name.toLowerCase()
+  );
+  const adding = ix < 0;
+  const next = adding ? [...cur, name] : cur.filter((_, i) => i !== ix);
+  // Optimistic UI: flip immediately, revert on error.
+  state.settings.watchlist_names = next;
+  if (btn) {
+    btn.classList.toggle('on', adding);
+    btn.title = adding ? 'In watchlist' : 'Add to watchlist';
+  }
+  tg?.HapticFeedback?.impactOccurred('light');
+  try {
+    const r = await fetch(BACKEND + '/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ settings: { watchlist_names: next } }),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error('save_failed');
+    showToast(adding ? '👁 +' + name : '🙈 −' + name);
+    // Re-render the watchlist chips on the settings tab so they stay in sync.
+    if (state.activeTab === 'settings') renderSettings();
+    // Modal: re-paint the watch button label if it's open.
+    refreshModalWatchBtn?.(it);
+  } catch (e) {
+    state.settings.watchlist_names = cur;
+    if (btn) btn.classList.toggle('on', !adding);
+    showToast(t('network_err'));
+    tg?.HapticFeedback?.notificationOccurred('error');
+  }
+}
+
+function refreshModalWatchBtn(it) {
+  const btn = document.getElementById('modal-watch-cta');
+  if (!btn || !it) return;
+  const on = isWatchlisted(it);
+  btn.classList.toggle('on', on);
+  btn.textContent = on ? '🙈 ' + (t('watch_remove') || 'Из Watchlist')
+                       : '👁 ' + (t('watch_add') || 'В Watchlist');
 }
 
 let closeModal = function(e) {
@@ -2184,6 +2367,18 @@ function renderSettings() {
             ${stepperRow('TTL кэша AI-ответов (сек)', 'ai_cache_ttl_sec',
               s.ai_cache_ttl_sec ?? 300, 0, 3600, 30,
               'Re-listing того же лота возьмёт вердикт из кэша вместо повторного запроса в LLM. 0 = выключить кэш.')}
+
+            ${stepperRow('Дневной бюджет, токенов', 'ai_daily_token_budget',
+              s.ai_daily_token_budget ?? 0, 0, 1000000, 1000,
+              '0 = без лимита. Когда сегодня потрачено ≥ бюджета, новые вердикты пропускаются (кэш продолжает отдавать). Сброс — в полночь по UTC.')}
+
+            <div id="ai-budget-card" class="setting setting--col" style="margin-top: 10px;">
+              <div class="setting-label">
+                <span class="setting-name">📊 AI бюджет (live)</span>
+                <span class="setting-hint" id="ai-budget-hint">Загрузка…</span>
+              </div>
+              <div class="ai-budget-bar"><div class="ai-budget-fill" id="ai-budget-fill"></div></div>
+            </div>
           </div>
         </details>
 
@@ -2270,6 +2465,9 @@ function renderSettings() {
       </div>
     </div>
   `;
+
+  // Refresh live AI budget bar (idempotent — no-op if AI section collapsed).
+  refreshAiBudget();
 
   pane.querySelectorAll('[data-set-lang]').forEach(p => {
     p.addEventListener('click', () => {
