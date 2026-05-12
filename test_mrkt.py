@@ -1577,6 +1577,61 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+print("\n[21] feed_store.push_settings — приклеивает ai_stats к payload'у")
+# ══════════════════════════════════════════════════════════════════════════════
+try:
+    import os as _os
+    _os.environ["WEBAPP_BACKEND_URL"] = "http://127.0.0.1:1"  # активирует push-ветку
+    import feed_store as _fs
+    import ai_cache as _aic
+    import importlib as _il
+    _il.reload(_fs)  # перечитать с новым WEBAPP_BACKEND_URL
+    _aic.reset_stats(); _aic.reset_cache()
+    _aic.record_request("auto")
+    _aic.record_miss("groq", input_chars=120, output_chars=60)  # = 60 tok
+
+    captured: list = []
+
+    async def _fake_post(p):
+        captured.append(p)
+
+    _fs._post_to_backend = _fake_post  # перехватываем HTTP
+
+    settings = {
+        "ai_provider": "groq",
+        "groq_model": "llama-3.3-70b-versatile",
+        "ai_fast_model": "llama-3.1-8b-instant",
+        "ai_fallback_provider": "gemini",
+        "ai_fallback_model": "gemini-2.0-flash",
+        "ai_daily_token_budget": 500,
+    }
+    import asyncio as _asyncio
+    _asyncio.run(_fs.push_settings(settings))
+
+    payload = captured[0] if captured else {}
+    snap = payload.get("ai_stats") or {}
+    test("push_settings: payload содержит settings + ai_stats",
+         "settings" in payload and "ai_stats" in payload)
+    test("push_settings: ai_stats.budget.used = 60",
+         (snap.get("budget") or {}).get("used") == 60)
+    test("push_settings: ai_stats.budget.budget = 500",
+         (snap.get("budget") or {}).get("budget") == 500)
+    test("push_settings: primary_model правильно резолвится",
+         snap.get("primary_model") == "llama-3.3-70b-versatile")
+    test("push_settings: fast_model отдельным полем",
+         snap.get("fast_model") == "llama-3.1-8b-instant")
+    test("push_settings: fallback_provider/model заполнены",
+         snap.get("fallback_provider") == "gemini"
+         and snap.get("fallback_model") == "gemini-2.0-flash")
+
+    _aic.reset_stats(); _aic.reset_cache()
+
+except Exception as e:
+    print(f"  💥 Ошибка: {e}")
+    traceback.print_exc()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 print("\n" + "=" * 60)
 print(f"Результат: ✅ {PASS} прошло  ❌ {FAIL} провалилось")
 print("=" * 60)
