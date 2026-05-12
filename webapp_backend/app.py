@@ -85,6 +85,11 @@ FLOOR_HISTORY_FILE = DATA_DIR / "floor_history.json"
 # ─── В памяти ──────────────────────────────────────────────────────────────
 _pushed_feed: Deque[dict] = deque(maxlen=MAX_FEED)
 _pushed_settings: dict = {}
+# Snapshot AI-stats, пришедший от бота (см. POST /api/push с полем ai_stats).
+# В Mini App backend нет своего ai_cache (LLM-вызовы только в боте), поэтому
+# мы храним последний пуш и отдаём его в GET /api/ai/stats.
+_pushed_ai_stats: dict = {}
+_pushed_ai_stats_ts: int = 0
 
 # Кэши маркетов: backend сам скрейпит публичные источники, но если бот
 # присылает batch — заменяем кэш.
@@ -443,13 +448,34 @@ async def settings():
 async def ai_stats():
     """Снапшот статистики AI: запросы, hit-rate, токены за сутки и бюджет.
 
-    Используется Mini App'ом, чтобы рисовать budget-полоску и числовые метрики
-    без необходимости открывать команду /ai_stats в боте.
+    Приоритеты источников:
+    1. `_pushed_ai_stats` (бот регулярно пушит по POST /api/push вместе
+       с settings) — в prod это единственный правдивый источник, тк Mini App
+       backend и бот — разные процессы/сервисы.
+    2. Локальный `ai_cache` — fallback для dev/совмещённого режима,
+       когда бот и webapp живут в одном процессе.
     """
+    if _pushed_ai_stats:
+        return {
+            "ok": True,
+            "stats": _pushed_ai_stats,
+            "source": "bot",
+            "ts": _pushed_ai_stats_ts,
+        }
     try:
-        import ai_cache  # noqa: WPS433 — локальный импорт чтобы не ронять app при отсутствии модуля
+        import ai_cache  # noqa: WPS433 — локальный импорт (dev fallback)
     except Exception:
-        return {"ok": False, "error": "ai_cache unavailable"}
+        return {
+            "ok": True,
+            "stats": {
+                "requests": 0, "cache_hits": 0, "cache_miss": 0,
+                "by_provider": {}, "by_task": {}, "fallbacks": 0,
+                "errors": 0, "budget_blocks": 0,
+                "budget": {"used": 0, "budget": 0, "remaining": None, "over": False},
+            },
+            "source": "empty",
+            "note": "Бот ещё не прислал снапшот — зажди 1-2 минуты",
+        }
     s = _pushed_settings or _DEFAULT_SETTINGS
     budget = int(s.get("ai_daily_token_budget") or 0)
     snap = ai_cache.get_stats()
@@ -459,7 +485,7 @@ async def ai_stats():
     snap["fast_model"] = s.get("ai_fast_model") or ""
     snap["fallback_provider"] = (s.get("ai_fallback_provider") or "off").lower()
     snap["fallback_model"] = s.get("ai_fallback_model") or ""
-    return {"ok": True, "stats": snap}
+    return {"ok": True, "stats": snap, "source": "local"}
 
 
 _DEFAULT_SETTINGS = {
@@ -644,9 +670,16 @@ async def push(request: Request, x_api_key: str = Header(default="")):
 
     items = body.get("items") or []
     settings_payload = body.get("settings")
+    ai_stats_payload = body.get("ai_stats")
     batch = body.get("batch")
     market_for_batch = (body.get("market") or "").lower()
     mode = body.get("mode") or "replace"
+
+    if isinstance(ai_stats_payload, dict):
+        global _pushed_ai_stats_ts
+        _pushed_ai_stats.clear()
+        _pushed_ai_stats.update(ai_stats_payload)
+        _pushed_ai_stats_ts = int(time.time())
 
     if isinstance(settings_payload, dict):
         _pushed_settings.clear()
@@ -703,7 +736,9 @@ async def push(request: Request, x_api_key: str = Header(default="")):
 
     # Broadcast на остальные машины кластера, чтобы синхронизировать кэш.
     broadcast_cnt = 0
-    if not is_broadcast and (batch or items or settings_payload):
+    if not is_broadcast and (
+        batch or items or settings_payload or ai_stats_payload
+    ):
         broadcast_cnt = await _broadcast_to_peers(body, x_api_key)
 
     return {
@@ -712,6 +747,7 @@ async def push(request: Request, x_api_key: str = Header(default="")):
         "batch": batch_cnt,
         "market": market_for_batch,
         "settings_updated": bool(settings_payload),
+        "ai_stats_updated": bool(ai_stats_payload),
         "broadcast": broadcast_cnt,
     }
 

@@ -121,10 +121,35 @@ def push(gift: dict, market: str) -> None:
 
 
 async def push_settings(settings: dict) -> None:
-    """Форвардит текущий snapshot настроек на backend (показ в Mini App)."""
+    """Форвардит текущий snapshot настроек + AI-метрики на backend.
+
+    AI-метрики (cache stats + дневной бюджет) живут в `ai_cache` локально
+    в процессе бота — Mini App backend никогда сам LLM не вызывает.
+    Приклеиваем снапшот к settings-push'у, чтобы /api/ai/stats на
+    публичном backend отдавал актуальные числа.
+    """
     if not _BACKEND_URL or not isinstance(settings, dict):
         return
-    await _post_to_backend({"settings": settings})
+    payload: dict = {"settings": settings}
+    try:
+        import ai_cache  # local import: ai_cache живёт только на стороне бота
+        budget = int((settings or {}).get("ai_daily_token_budget") or 0)
+        snap = ai_cache.get_stats()
+        snap["budget"] = ai_cache.get_budget_status(budget)
+        snap["primary_provider"] = (settings.get("ai_provider") or "off").lower()
+        snap["primary_model"] = settings.get(
+            f"{snap['primary_provider']}_model"
+        ) or ""
+        snap["fast_model"] = settings.get("ai_fast_model") or ""
+        snap["fallback_provider"] = (
+            settings.get("ai_fallback_provider") or "off"
+        ).lower()
+        snap["fallback_model"] = settings.get("ai_fallback_model") or ""
+        payload["ai_stats"] = snap
+    except Exception:
+        # Не блочим push настроек, если ai_cache недоступен (например, в тестах).
+        pass
+    await _post_to_backend(payload)
 
 
 async def push_batch(items: list, market: str, mode: str = "replace") -> None:
